@@ -31,7 +31,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.1.2"
+#define FAR_VERSION_NUM L"0.1.3"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
