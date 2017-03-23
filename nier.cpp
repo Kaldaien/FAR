@@ -31,7 +31,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.1.1"
+#define FAR_VERSION_NUM L"0.1.2"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -229,15 +229,18 @@ SK_FAR_ControlPanel (void)
       quality = 0;
     else if (__FAR_GlobalIllumWorkGroupSize < 32)
       quality = 1;
-    else if (__FAR_GlobalIllumWorkGroupSize < 128)
+    else if (__FAR_GlobalIllumWorkGroupSize < 64)
       quality = 2;
-    else
+    else if (__FAR_GlobalIllumWorkGroupSize < 128)
       quality = 3;
+    else
+      quality = 4;
 
     if ( ImGui::Combo ( "Global Illumination Quality", &quality, "Off (High Performance)\0"
                                                                  "Low\0"
                                                                  "Medium\0"
-                                                                 "High (Game Default)\0\0", 4 ) )
+                                                                 "High\0"
+                                                                 "Ultra (Game Default)\0\0", 5 ) )
     {
       changed = true;
 
@@ -255,8 +258,12 @@ SK_FAR_ControlPanel (void)
           __FAR_GlobalIllumWorkGroupSize = 32;
           break;
 
-        default:
         case 3:
+          __FAR_GlobalIllumWorkGroupSize = 64;
+          break;
+
+        default:
+        case 4:
           __FAR_GlobalIllumWorkGroupSize = 128;
           break;
       }
