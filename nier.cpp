@@ -31,7 +31,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.1.3"
+#define FAR_VERSION_NUM L"0.1.3.2"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -70,9 +70,11 @@ D3D11Dev_CreateShaderResourceView_Override (
   _Out_opt_      ID3D11ShaderResourceView        **ppSRView );
 
 
+// Was threaded originally, but it is important to block until
+//   the update check completes.
 unsigned int
 __stdcall
-SK_FAR_CheckVersionThread (LPVOID user)
+SK_FAR_CheckVersion (LPVOID user)
 {
   UNREFERENCED_PARAMETER (user);
 
@@ -87,8 +89,6 @@ SK_FAR_CheckVersionThread (LPVOID user)
 
     SK_UpdateSoftware (L"FAR");
   }
-
-  CloseHandle (GetCurrentThread ());
 
   return 0;
 }
@@ -151,12 +151,7 @@ void
 SK_FAR_InitPlugin (void)
 {
   if (! SK_IsInjected ())
-    _beginthreadex ( nullptr,
-                       0,
-                         SK_FAR_CheckVersionThread,
-                           nullptr,
-                             0x00,
-                               nullptr );
+    SK_FAR_CheckVersion (nullptr);
 
   SK_SetPluginName (FAR_VERSION_STR);
 
