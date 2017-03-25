@@ -31,7 +31,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.1.3.4"
+#define FAR_VERSION_NUM L"0.1.3.5"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -148,11 +148,15 @@ SK_FAR_CreateShaderResourceView (
 }
 
 void
-SK_FAR_InitPlugin (void)
+SK_FAR_FirstFrame (void)
 {
   if (! SK_IsInjected ())
     SK_FAR_CheckVersion (nullptr);
+}
 
+void
+SK_FAR_InitPlugin (void)
+{
   SK_SetPluginName (FAR_VERSION_STR);
 
   SK_CreateFuncHook ( L"ID3D11Device::CreateBuffer",
