@@ -22,6 +22,7 @@ sk::ParameterFactory  far_factory;
 iSK_INI*              far_prefs                 = nullptr;
 wchar_t               far_prefs_file [MAX_PATH] = { L'\0' };
 sk::ParameterInt*     far_gi_workgroups         = nullptr;
+sk::ParameterBool*    far_limiter_busy          = nullptr;
 
 
 // (Presumable) Size of compute shader workgroup
@@ -31,7 +32,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.1.3.5"
+#define FAR_VERSION_NUM L"0.2.0"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -147,11 +148,81 @@ SK_FAR_CreateShaderResourceView (
   return D3D11Dev_CreateShaderResourceView_Original (This, pResource, pDesc, ppSRView);
 }
 
+
+enum class SK_FAR_WaitBehavior
+{
+  Sleep = 0x1,
+  Busy  = 0x2
+};
+
+SK_FAR_WaitBehavior wait_behavior (SK_FAR_WaitBehavior::Sleep);
+
+extern LPVOID __SK_base_img_addr;
+extern LPVOID __SK_end_img_addr;
+
+extern void* __stdcall SK_Scan (const uint8_t* pattern, size_t len, const uint8_t* mask);
+
+void
+SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior behavior)
+{
+  const uint8_t sleep_wait [] = { 0xFF, 0x15, 0xD3, 0x4B, 0x2C, 0x06 };
+  const uint8_t busy_wait  [] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
+
+  static bool   init      = false;
+  static LPVOID wait_addr = 0x0;
+
+  // Square-Enix rarely patches the games they publish, so just search for this pattern and
+  //   don't bother to adjust memory addresses... if it's not found using the hard-coded address,
+  //     bail-out.
+  if (! init)
+  {
+    init = true;
+
+    if ( (wait_addr = SK_Scan ( sleep_wait, 6, nullptr )) == nullptr )
+    {
+      dll_log.Log (L"[ FARLimit ]  Could not locate Framerate Limiter Sleep Addr.");
+    }
+    else {
+      dll_log.Log (L"[ FARLimit ]  Scanned Framerate Limiter Sleep Addr.: 0x%p", wait_addr);
+    }
+  }
+
+  if (wait_addr == nullptr)
+    return;
+
+  wait_behavior = behavior;
+
+  DWORD dwProtect;
+  VirtualProtect (wait_addr, 6, PAGE_EXECUTE_READWRITE, &dwProtect);
+
+  // Hard coded for now, 
+  switch (behavior)
+  {
+    case SK_FAR_WaitBehavior::Busy:
+      memcpy (wait_addr, busy_wait, 6);
+      break;
+
+    case SK_FAR_WaitBehavior::Sleep:
+      memcpy (wait_addr, sleep_wait, 6);
+      break;
+  }
+
+  VirtualProtect (wait_addr, 6, dwProtect, &dwProtect);
+}
+
+
 void
 SK_FAR_FirstFrame (void)
 {
   if (! SK_IsInjected ())
-    SK_FAR_CheckVersion (nullptr);
+  {
+    SK_FAR_CheckVersion   (nullptr);
+
+    bool busy_wait = far_limiter_busy->get_value ();
+
+    SK_FAR_SetLimiterWait ( busy_wait ? SK_FAR_WaitBehavior::Busy :
+                                        SK_FAR_WaitBehavior::Sleep );
+  }
 }
 
 void
@@ -196,10 +267,28 @@ SK_FAR_InitPlugin (void)
     far_gi_workgroups->set_value (__FAR_GlobalIllumWorkGroupSize);
     far_gi_workgroups->store     ();
 
+
+    far_limiter_busy = 
+        static_cast <sk::ParameterBool *>
+          (far_factory.create_parameter <bool> (L"Favor Busy-Wait For Better Timing"));
+
+    far_limiter_busy->register_to_ini ( far_prefs,
+                                      L"FAR.FrameRate",
+                                        L"UseBusyWait" );
+
+    if (! far_limiter_busy->load ())
+    {
+      // Enable by default, most people should have enough CPU cores for this
+      //   policy to be practical.
+      far_limiter_busy->set_value (true);
+      far_limiter_busy->store     ();
+    }
+
     far_prefs->write (far_prefs_file);
 
 
-    SK_GetCommandProcessor ()->AddVariable ("FAR.GIWorkgroups", SK_CreateVar (SK_IVariable::Int, &__FAR_GlobalIllumWorkGroupSize));
+    SK_GetCommandProcessor ()->AddVariable ("FAR.GIWorkgroups", SK_CreateVar (SK_IVariable::Int,     &__FAR_GlobalIllumWorkGroupSize));
+    //SK_GetCommandProcessor ()->AddVariable ("FAR.BusyWait",     SK_CreateVar (SK_IVariable::Boolean, &__FAR_BusyWait));
   }
 }
 
@@ -271,6 +360,33 @@ SK_FAR_ControlPanel (void)
     far_gi_workgroups->set_value (__FAR_GlobalIllumWorkGroupSize);
     far_gi_workgroups->store     ();
   }
+
+  if (ImGui::IsItemHovered())
+  {
+    ImGui::BeginTooltip ();
+    ImGui::Text         ("Global Illumination is indirect lighting bouncing off of surfaces");
+    ImGui::Separator    ();
+    ImGui::BulletText   ("Lower the quality for better performance but less natural looking lighting in shadows");
+    ImGui::EndTooltip   ();
+  }
+
+  bool busy_wait = (wait_behavior == SK_FAR_WaitBehavior::Busy);
+
+  if (ImGui::Checkbox ("Use Busy-Wait Framerate Limiter", &busy_wait))
+  {
+    changed = true;
+
+    if (busy_wait)
+      SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Busy);
+    else
+      SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Sleep);
+
+    far_limiter_busy->set_value (busy_wait);
+    far_limiter_busy->store     ();
+  }
+
+  if (ImGui::IsItemHovered ())
+    ImGui::SetTooltip ("Increase CPU load on render thread in exchange for less hitching");
 
   if (changed)
     far_prefs->write (far_prefs_file);
