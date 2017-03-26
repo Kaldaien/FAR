@@ -24,6 +24,7 @@ wchar_t               far_prefs_file [MAX_PATH] = { L'\0' };
 sk::ParameterInt*     far_gi_workgroups         = nullptr;
 sk::ParameterBool*    far_limiter_busy          = nullptr;
 sk::ParameterBool*    far_rtss_warned           = nullptr;
+sk::ParameterBool*    far_osd_disclaimer        = nullptr;
 
 
 // (Presumable) Size of compute shader workgroup
@@ -33,7 +34,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.2.0.1"
+#define FAR_VERSION_NUM L"0.2.0.2"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -212,6 +213,60 @@ SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior behavior)
 }
 
 
+extern void
+STDMETHODCALLTYPE
+SK_BeginBufferSwap (void);
+
+extern BOOL
+__stdcall
+SK_DrawExternalOSD (std::string app_name, std::string text);
+
+typedef void (STDMETHODCALLTYPE *SK_BeginFrame_pfn)(void);
+SK_BeginFrame_pfn SK_BeginFrame_Original = nullptr;
+
+void
+STDMETHODCALLTYPE
+SK_FAR_BeginFrame (void)
+{
+  SK_BeginFrame_Original ();
+
+  SK_DrawExternalOSD ( "FAR", "  Press Ctrl + Shift + O         to toggle In-Game OSD\n"
+                              "  Press Ctrl + Shift + Backspace to access In-Game Config Menu\n\n"
+                              "   * This message will go away the first time you actually read it and successfully toggle the OSD.\n" );
+}
+
+
+// Sit and spin until the user figures out what an OSD is
+//
+DWORD
+WINAPI
+SK_FAR_OSD_Disclaimer (LPVOID user)
+{
+  SK_CreateFuncHook ( L"SK_BeginBufferSwap", SK_BeginBufferSwap,
+                                             SK_FAR_BeginFrame,
+                                  (LPVOID *)&SK_BeginFrame_Original );
+
+  SK_EnableHook (SK_BeginBufferSwap);
+
+  while (config.osd.show)
+    Sleep (66);
+
+  SK_DisableHook (SK_BeginBufferSwap);
+  SK_RemoveHook  (SK_BeginBufferSwap);
+
+  SK_DrawExternalOSD ( "FAR", "" );
+
+  far_osd_disclaimer->set_value (false);
+  far_osd_disclaimer->store     ();
+
+  far_prefs->write              (far_prefs_file);
+
+  CloseHandle (GetCurrentThread ());
+
+  return 0;
+}
+
+
 void
 SK_FAR_FirstFrame (void)
 {
@@ -242,7 +297,16 @@ SK_FAR_FirstFrame (void)
       far_prefs->write           (far_prefs_file);
     }
   }
+
+  // Since people don't read guides, nag them to death...
+  if (far_osd_disclaimer->get_value () && config.osd.show)
+  {
+    CreateThread ( nullptr,                 0,
+                     SK_FAR_OSD_Disclaimer, nullptr,
+                       0x00,                nullptr );
+  }
 }
+
 
 void
 SK_FAR_InitPlugin (void)
@@ -315,6 +379,20 @@ SK_FAR_InitPlugin (void)
     {
       far_rtss_warned->set_value (false);
       far_rtss_warned->store     ();
+    }
+
+    far_osd_disclaimer = 
+        static_cast <sk::ParameterBool *>
+          (far_factory.create_parameter <bool> (L"OSD Disclaimer Dismissed"));
+
+    far_osd_disclaimer->register_to_ini ( far_prefs,
+                                            L"FAR.OSD",
+                                              L"ShowDisclaimer" );
+
+    if (! far_osd_disclaimer->load ())
+    {
+      far_osd_disclaimer->set_value (true);
+      far_osd_disclaimer->store     ();
     }
 
     far_prefs->write (far_prefs_file);
