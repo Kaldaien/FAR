@@ -23,6 +23,7 @@ iSK_INI*              far_prefs                 = nullptr;
 wchar_t               far_prefs_file [MAX_PATH] = { L'\0' };
 sk::ParameterInt*     far_gi_workgroups         = nullptr;
 sk::ParameterBool*    far_limiter_busy          = nullptr;
+sk::ParameterBool*    far_rtss_warned           = nullptr;
 
 
 // (Presumable) Size of compute shader workgroup
@@ -32,7 +33,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.2.0"
+#define FAR_VERSION_NUM L"0.2.0.1"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -223,6 +224,24 @@ SK_FAR_FirstFrame (void)
     SK_FAR_SetLimiterWait ( busy_wait ? SK_FAR_WaitBehavior::Busy :
                                         SK_FAR_WaitBehavior::Sleep );
   }
+
+  if (GetModuleHandle (L"RTSSHooks64.dll"))
+  {
+    bool warned = far_rtss_warned->get_value ();
+
+    if (! warned)
+    {
+      warned = true;
+      
+      SK_MessageBox ( L"RivaTuner Statistics Server Detected\r\n\r\n\t"
+                      L"If FAR does not work correctly, this is probably why.",
+                        L"Incompatible Third-Party Software", MB_OK | MB_ICONWARNING );
+
+      far_rtss_warned->set_value (true);
+      far_rtss_warned->store     ();
+      far_prefs->write           (far_prefs_file);
+    }
+  }
 }
 
 void
@@ -282,6 +301,20 @@ SK_FAR_InitPlugin (void)
       //   policy to be practical.
       far_limiter_busy->set_value (true);
       far_limiter_busy->store     ();
+    }
+
+    far_rtss_warned = 
+        static_cast <sk::ParameterBool *>
+          (far_factory.create_parameter <bool> (L"RTSS Warning Issued"));
+
+    far_rtss_warned->register_to_ini ( far_prefs,
+                                         L"FAR.Compatibility",
+                                           L"WarnedAboutRTSS" );
+
+    if (! far_rtss_warned->load ())
+    {
+      far_rtss_warned->set_value (false);
+      far_rtss_warned->store     ();
     }
 
     far_prefs->write (far_prefs_file);
@@ -367,6 +400,7 @@ SK_FAR_ControlPanel (void)
     ImGui::Text         ("Global Illumination is indirect lighting bouncing off of surfaces");
     ImGui::Separator    ();
     ImGui::BulletText   ("Lower the quality for better performance but less natural looking lighting in shadows");
+    ImGui::BulletText   ("Please direct thanks for this feature to DrDaxxy ;)");
     ImGui::EndTooltip   ();
   }
 
