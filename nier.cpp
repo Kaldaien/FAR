@@ -34,7 +34,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.2.0.2"
+#define FAR_VERSION_NUM L"0.2.0.3"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -470,35 +470,35 @@ SK_FAR_ControlPanel (void)
 
     far_gi_workgroups->set_value (__FAR_GlobalIllumWorkGroupSize);
     far_gi_workgroups->store     ();
+
+    if (ImGui::IsItemHovered())
+    {
+      ImGui::BeginTooltip ();
+      ImGui::Text         ("Global Illumination is indirect lighting bouncing off of surfaces");
+      ImGui::Separator    ();
+      ImGui::BulletText   ("Lower the quality for better performance but less natural looking lighting in shadows");
+      ImGui::BulletText   ("Please direct thanks for this feature to DrDaxxy ;)");
+      ImGui::EndTooltip   ();
+    }
+
+    bool busy_wait = (wait_behavior == SK_FAR_WaitBehavior::Busy);
+
+    if (ImGui::Checkbox ("Use Busy-Wait Framerate Limiter", &busy_wait))
+    {
+      changed = true;
+
+      if (busy_wait)
+        SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Busy);
+      else
+        SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Sleep);
+
+      far_limiter_busy->set_value (busy_wait);
+      far_limiter_busy->store     ();
+    }
+
+    if (ImGui::IsItemHovered ())
+      ImGui::SetTooltip ("Increase CPU load on render thread in exchange for less hitching");
   }
-
-  if (ImGui::IsItemHovered())
-  {
-    ImGui::BeginTooltip ();
-    ImGui::Text         ("Global Illumination is indirect lighting bouncing off of surfaces");
-    ImGui::Separator    ();
-    ImGui::BulletText   ("Lower the quality for better performance but less natural looking lighting in shadows");
-    ImGui::BulletText   ("Please direct thanks for this feature to DrDaxxy ;)");
-    ImGui::EndTooltip   ();
-  }
-
-  bool busy_wait = (wait_behavior == SK_FAR_WaitBehavior::Busy);
-
-  if (ImGui::Checkbox ("Use Busy-Wait Framerate Limiter", &busy_wait))
-  {
-    changed = true;
-
-    if (busy_wait)
-      SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Busy);
-    else
-      SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Sleep);
-
-    far_limiter_busy->set_value (busy_wait);
-    far_limiter_busy->store     ();
-  }
-
-  if (ImGui::IsItemHovered ())
-    ImGui::SetTooltip ("Increase CPU load on render thread in exchange for less hitching");
 
   if (changed)
     far_prefs->write (far_prefs_file);
