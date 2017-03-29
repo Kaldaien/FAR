@@ -26,12 +26,13 @@ struct far_game_state_s {
   DWORD* pHacking   = (DWORD *)0x1410E0AB4;
   DWORD* pShortcuts = (DWORD *)0x1413FC35C;
 
-  bool   capped     = true;
-  bool   patchable  = false; // True only if the memory addresses can be validated
+  bool   capped      = true;  // Actual state of limiter
+  bool   enforce_cap = true;  // User's current preference
+  bool   patchable   = false; // True only if the memory addresses can be validated
 
   bool needFPSCap (void) {
-    return (   *pMenu != 0) || (*pLoading   != 0) ||
-           (*pHacking != 0) || (*pShortcuts != 0);
+    return enforce_cap || (   *pMenu != 0) || (*pLoading   != 0) ||
+                          (*pHacking != 0) || (*pShortcuts != 0);
   }
 
   void capFPS   (void);
@@ -47,7 +48,6 @@ struct far_game_state_s {
 
 
 sk::ParameterFactory  far_factory;
-double                far_target_fps            = 59.94;
 iSK_INI*              far_prefs                 = nullptr;
 wchar_t               far_prefs_file [MAX_PATH] = { L'\0' };
 sk::ParameterInt*     far_gi_workgroups         = nullptr;
@@ -60,14 +60,15 @@ sk::ParameterBool*    far_osd_disclaimer        = nullptr;
 
 
 // (Presumable) Size of compute shader workgroup
-int __FAR_GlobalIllumWorkGroupSize = 128;
-int __FAR_BloomWidth               =  -1; // Set at startup from user prefs, never changed
+int    __FAR_GlobalIllumWorkGroupSize =   128;
+int    __FAR_BloomWidth               =    -1; // Set at startup from user prefs, never changed
+double __FAR_TargetFPS                = 59.94;
 
 extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.4.0.1"
+#define FAR_VERSION_NUM L"0.4.0.2"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -198,6 +199,19 @@ extern LPVOID __SK_base_img_addr;
 extern LPVOID __SK_end_img_addr;
 
 extern void* __stdcall SK_Scan (const uint8_t* pattern, size_t len, const uint8_t* mask);
+
+void
+SK_FAR_SetFramerateCap (bool enable)
+{
+  if (enable)
+  {
+    game_state.enforce_cap =  false;
+    far_uncap_fps->set_value (true);
+  } else {
+    far_uncap_fps->set_value (false);
+    game_state.enforce_cap =  true;
+  }
+}
 
 bool
 SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior behavior)
@@ -331,6 +345,23 @@ SK_FAR_OSD_Disclaimer (LPVOID user)
 }
 
 
+typedef void (CALLBACK *SK_PluginKeyPress_pfn)(
+  BOOL Control, BOOL Shift, BOOL Alt,
+  BYTE vkCode
+);
+SK_PluginKeyPress_pfn SK_PluginKeyPress_Original;
+
+void
+CALLBACK
+SK_FAR_PluginKeyPress (BOOL Control, BOOL Shift, BOOL Alt, BYTE vkCode)
+{
+  if (Control && Shift && vkCode == VK_OEM_PERIOD)
+    SK_FAR_SetFramerateCap (game_state.enforce_cap);
+
+  SK_PluginKeyPress_Original (Control, Shift, Alt, vkCode);
+}
+
+
 void
 SK_FAR_FirstFrame (void)
 {
@@ -340,12 +371,23 @@ SK_FAR_FirstFrame (void)
   //     surprises if the plug-in falls out of maintenance.
   if (! SK_IsInjected ())
   {
+    game_state.enforce_cap = (! far_uncap_fps->get_value ());
+
     bool busy_wait = far_limiter_busy->get_value ();
 
     game_state.patchable =
-        far_uncap_fps->get_value () &&
-          SK_FAR_SetLimiterWait ( busy_wait ? SK_FAR_WaitBehavior::Busy :
-                                              SK_FAR_WaitBehavior::Sleep );
+      SK_FAR_SetLimiterWait ( busy_wait ? SK_FAR_WaitBehavior::Busy :
+                                          SK_FAR_WaitBehavior::Sleep );
+
+    //
+    // Hook keyboard input, only necessary for the FPS cap toggle right now
+    //
+    extern void SK_PluginKeyPress (BOOL,BOOL,BOOL,BYTE);
+    SK_CreateFuncHook ( L"SK_PluginKeyPress",
+                          SK_PluginKeyPress,
+                          SK_FAR_PluginKeyPress,
+               (LPVOID *)&SK_PluginKeyPress_Original );
+    SK_EnableHook        (SK_PluginKeyPress);
   }
 
   if (GetModuleHandle (L"RTSSHooks64.dll"))
@@ -912,16 +954,9 @@ SK_FAR_ControlPanel (void)
     {
       changed = true;
 
-      if (remove_cap)
-        far_uncap_fps->set_value (true);
-      else
-        far_uncap_fps->set_value (false);
-
-      far_uncap_fps->store       ();
+      SK_FAR_SetFramerateCap (! remove_cap);
+      far_uncap_fps->store   ();
     }
-
-    if (ImGui::IsItemHovered ())
-      ImGui::SetTooltip ("Requires application restart");
 
     ImGui::SameLine ();
 
@@ -1033,7 +1068,7 @@ far_game_state_s::uncapFPS (void)
   DWORD old_protect_mask;
 
   SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Busy);
-  SK::Framerate::GetLimiter ()->set_limit (far_target_fps);
+  SK::Framerate::GetLimiter ()->set_limit (__FAR_TargetFPS);
 
   mbegin (pspinlock, 2)
   memset (pspinlock, 0x90, 2);
@@ -1063,8 +1098,8 @@ far_game_state_s::capFPS (void)
     //
     //   Avoid using Speical K's command processor because that
     //     would store this value persistently.
-    far_target_fps = SK::Framerate::GetLimiter ()->get_limit ();
-                     SK::Framerate::GetLimiter ()->set_limit (59.94);
+    __FAR_TargetFPS = SK::Framerate::GetLimiter ()->get_limit ();
+                      SK::Framerate::GetLimiter ()->set_limit (59.94);
   }
 
   mbegin (pspinlock, 2)
