@@ -68,7 +68,7 @@ extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
 
-#define FAR_VERSION_NUM L"0.4.0.2"
+#define FAR_VERSION_NUM L"0.4.0.3"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -292,8 +292,10 @@ SK_FAR_BeginFrame (void)
 
     if (game_state.needFPSCap ()) {
       state += "< Needs Cap :";
-      if (*game_state.pLoading) state += " loading ";
-      if (*game_state.pMenu)    state += " menu ";
+      if (*game_state.pLoading)   state += " loading ";
+      if (*game_state.pMenu)      state += " menu ";
+      if (*game_state.pHacking)   state += " hacking ";
+      if (*game_state.pShortcuts) state += " shortcuts ";
       state += ">";
     }
 
@@ -888,100 +890,12 @@ SK_FAR_ControlPanel (void)
 
   if (ImGui::CollapsingHeader("NieR: Automata", ImGuiTreeNodeFlags_DefaultOpen))
   {
-    int quality = 0;
-
-    if (__FAR_GlobalIllumWorkGroupSize < 16)
-      quality = 0;
-    else if (__FAR_GlobalIllumWorkGroupSize < 32)
-      quality = 1;
-    else if (__FAR_GlobalIllumWorkGroupSize < 64)
-      quality = 2;
-    else if (__FAR_GlobalIllumWorkGroupSize < 128)
-      quality = 3;
-    else
-      quality = 4;
-
-    if ( ImGui::Combo ( "Global Illumination Quality", &quality, "Off (High Performance)\0"
-                                                                 "Low\0"
-                                                                 "Medium\0"
-                                                                 "High\0"
-                                                                 "Ultra (Game Default)\0\0", 5 ) )
-    {
-      changed = true;
-
-      switch (quality)
-      {
-        case 0:
-          __FAR_GlobalIllumWorkGroupSize = 0;
-          break;
-
-        case 1:
-          __FAR_GlobalIllumWorkGroupSize = 16;
-          break;
-
-        case 2:
-          __FAR_GlobalIllumWorkGroupSize = 32;
-          break;
-
-        case 3:
-          __FAR_GlobalIllumWorkGroupSize = 64;
-          break;
-
-        default:
-        case 4:
-          __FAR_GlobalIllumWorkGroupSize = 128;
-          break;
-      }
-    }
-
-    far_gi_workgroups->set_value (__FAR_GlobalIllumWorkGroupSize);
-    far_gi_workgroups->store     ();
-
-    if (ImGui::IsItemHovered ())
-    {
-      ImGui::BeginTooltip ();
-      ImGui::Text         ("Global Illumination is indirect lighting bouncing off of surfaces");
-      ImGui::Separator    ();
-      ImGui::BulletText   ("Lower the quality for better performance but less natural looking lighting in shadows");
-      ImGui::BulletText   ("Please direct thanks for this feature to DrDaxxy ;)");
-      ImGui::EndTooltip   ();
-    }
-
-    bool remove_cap = far_uncap_fps->get_value ();
-    bool busy_wait  = (wait_behavior == SK_FAR_WaitBehavior::Busy);
-
-    if (ImGui::Checkbox ("Remove 60 FPS Cap", &remove_cap))
-    {
-      changed = true;
-
-      SK_FAR_SetFramerateCap (! remove_cap);
-      far_uncap_fps->store   ();
-    }
-
-    ImGui::SameLine ();
-
-    if (ImGui::Checkbox ("Use Busy-Wait For Capped FPS", &busy_wait))
-    {
-      changed = true;
-
-      if (busy_wait)
-        SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Busy);
-      else
-        SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Sleep);
-
-      far_limiter_busy->set_value (busy_wait);
-      far_limiter_busy->store     ();
-    }
-
-    if (ImGui::IsItemHovered ())
-      ImGui::SetTooltip ("Increase CPU load on render thread in exchange for less hitching");
-
-    bool expanded_bloom = ImGui::TreeNode ("Bloom");
+    bool bloom_expanded = ImGui::TreeNodeEx ("Bloom", ImGuiTreeNodeFlags_DefaultOpen);
 
     if (ImGui::IsItemHovered ())
       ImGui::SetTooltip ("Changes to this setting require a full application restart");
 
-    if (expanded_bloom)
+    if (bloom_expanded)
     {
       int bloom_behavior = (far_bloom_width->get_value () != -1);
 
@@ -995,7 +909,7 @@ SK_FAR_ControlPanel (void)
 
       ImGui::SameLine ();
 
-      if (ImGui::RadioButton ("Custom Resolution",        &bloom_behavior, 1))
+      if (ImGui::RadioButton ("Native Resolution",            &bloom_behavior, 1))
       {
         far_bloom_width->set_value ((int)ImGui::GetIO ().DisplaySize.x);
         far_bloom_width->store     ();
@@ -1003,24 +917,107 @@ SK_FAR_ControlPanel (void)
         changed = true;
       }
 
-      int width = far_bloom_width->get_value ();
+      ImGui::TreePop ();
+    }
 
-      if (bloom_behavior == 1)
+    if (ImGui::TreeNodeEx ("Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+      int quality = 0;
+
+      if (__FAR_GlobalIllumWorkGroupSize < 16)
+        quality = 0;
+      else if (__FAR_GlobalIllumWorkGroupSize < 32)
+        quality = 1;
+      else if (__FAR_GlobalIllumWorkGroupSize < 64)
+        quality = 2;
+      else if (__FAR_GlobalIllumWorkGroupSize < 128)
+        quality = 3;
+      else
+        quality = 4;
+
+      if ( ImGui::Combo ( "Global Illumination Quality", &quality, "Off (High Performance)\0"
+                                                                   "Low\0"
+                                                                   "Medium\0"
+                                                                   "High\0"
+                                                                   "Ultra (Game Default)\0\0", 5 ) )
       {
-        ImGui::SameLine ();
+        changed = true;
 
-        if (ImGui::InputInt ("Width", &width))
+        switch (quality)
         {
-          // Clamp values, 0 will crash!
-          if (width <= 0)
-            width = -1;
+          case 0:
+            __FAR_GlobalIllumWorkGroupSize = 0;
+            break;
 
-          far_bloom_width->set_value (width);
-          far_bloom_width->store     ();
+          case 1:
+            __FAR_GlobalIllumWorkGroupSize = 16;
+            break;
 
-          changed = true;
+          case 2:
+            __FAR_GlobalIllumWorkGroupSize = 32;
+            break;
+
+          case 3:
+            __FAR_GlobalIllumWorkGroupSize = 64;
+            break;
+
+          default:
+          case 4:
+            __FAR_GlobalIllumWorkGroupSize = 128;
+            break;
         }
       }
+
+      far_gi_workgroups->set_value (__FAR_GlobalIllumWorkGroupSize);
+      far_gi_workgroups->store     ();
+
+      if (ImGui::IsItemHovered ())
+      {
+        ImGui::BeginTooltip ();
+        ImGui::Text         ("Global Illumination is indirect lighting bouncing off of surfaces");
+        ImGui::Separator    ();
+        ImGui::BulletText   ("Lower the quality for better performance but less natural looking lighting in shadows");
+        ImGui::BulletText   ("Please direct thanks for this feature to DrDaxxy ;)");
+        ImGui::EndTooltip   ();
+      }
+
+      ImGui::TreePop ();
+    }
+
+    if (ImGui::TreeNodeEx ("Framerate", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+      bool remove_cap = far_uncap_fps->get_value ();
+      bool busy_wait  = (wait_behavior == SK_FAR_WaitBehavior::Busy);
+
+      if (ImGui::Checkbox ("Remove 60 FPS Cap  ", &remove_cap))
+      {
+        changed = true;
+
+        SK_FAR_SetFramerateCap (remove_cap);
+        far_uncap_fps->store   ();
+      }
+
+      if (ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("Can be toggled with Ctrl + Shift + .");
+
+      ImGui::SameLine ();
+
+      if (ImGui::Checkbox ("Use Busy-Wait For Capped FPS", &busy_wait))
+      {
+        changed = true;
+
+        if (busy_wait)
+          SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Busy);
+        else
+          SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior::Sleep);
+
+        far_limiter_busy->set_value (busy_wait);
+        far_limiter_busy->store     ();
+      }
+
+      if (ImGui::IsItemHovered ())
+        ImGui::SetTooltip ("Increase CPU load on render thread in exchange for less hitching");
+
       ImGui::TreePop ();
     }
   }
