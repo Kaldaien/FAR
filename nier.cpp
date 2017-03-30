@@ -19,6 +19,10 @@
 #include <atlbase.h>
 
 
+#define FAR_VERSION_NUM L"0.4.1.4"
+#define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
+
+
 struct far_game_state_s {
   // Game state addresses courtesy of Francesco149
   DWORD* pMenu      = (DWORD *)0x1418F39C4;
@@ -59,18 +63,21 @@ sk::ParameterBool*    far_rtss_warned           = nullptr;
 sk::ParameterBool*    far_osd_disclaimer        = nullptr;
 
 
+#include <unordered_set>
+static std::unordered_set <ID3D11Texture2D          *> far_title_textures;
+static std::unordered_set <ID3D11ShaderResourceView *> far_title_views;
+
+
 // (Presumable) Size of compute shader workgroup
-int    __FAR_GlobalIllumWorkGroupSize =  128;
-bool   __FAR_GlobalIllumCompatMode    = true;
+int    __FAR_GlobalIllumWorkGroupSize =   128;
+bool   __FAR_GlobalIllumCompatMode    =  true;
 int    __FAR_BloomWidth               =    -1; // Set at startup from user prefs, never changed
 double __FAR_TargetFPS                = 59.94;
+
 
 extern void
 __stdcall
 SK_SetPluginName (std::wstring name);
-
-#define FAR_VERSION_NUM L"0.4.1"
-#define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
 typedef HRESULT (WINAPI *D3D11Dev_CreateBuffer_pfn)(
@@ -120,13 +127,12 @@ SK_FAR_CheckVersion (LPVOID user)
   __stdcall
   SK_FetchVersionInfo (const wchar_t* wszProduct);
 
-  if (SK_FetchVersionInfo (L"FAR")) {
-    extern HRESULT
-      __stdcall
-      SK_UpdateSoftware (const wchar_t* wszProduct);
+  extern HRESULT
+  __stdcall
+  SK_UpdateSoftware   (const wchar_t* wszProduct);
 
+  if (SK_FetchVersionInfo (L"FAR"))
     SK_UpdateSoftware (L"FAR");
-  }
 
   return 0;
 }
@@ -161,13 +167,13 @@ SK_FAR_CreateShaderResourceView (
   _In_opt_ const D3D11_SHADER_RESOURCE_VIEW_DESC  *pDesc,
   _Out_opt_      ID3D11ShaderResourceView        **ppSRView )
 {
-  if (! __FAR_GlobalIllumCompatMode)
-    return D3D11Dev_CreateShaderResourceView_Original (This, pResource, pDesc, ppSRView);
-
   // Global Illumination (DrDaxxy)
   if ( pDesc != nullptr && pDesc->ViewDimension        == D3D_SRV_DIMENSION_BUFFEREX &&
                            pDesc->BufferEx.NumElements == 128 )
   {
+    if (! __FAR_GlobalIllumCompatMode)
+      return D3D11Dev_CreateShaderResourceView_Original (This, pResource, pDesc, ppSRView);
+
     CComPtr <ID3D11Buffer> pBuf;
 
     if ( SUCCEEDED (
@@ -187,7 +193,17 @@ SK_FAR_CreateShaderResourceView (
     }
   }
 
-  return D3D11Dev_CreateShaderResourceView_Original (This, pResource, pDesc, ppSRView);
+
+  HRESULT hr =
+    D3D11Dev_CreateShaderResourceView_Original (This, pResource, pDesc, ppSRView);
+
+
+  // Title Screen
+  if (pDesc != nullptr && ppSRView != nullptr && far_title_textures.count ((ID3D11Texture2D *)pResource))
+    far_title_views.emplace (*ppSRView);
+
+
+  return hr;
 }
 
 
@@ -446,11 +462,18 @@ typedef void (WINAPI *D3D11_Draw_pfn)(
   _In_ UINT                 VertexCount,
   _In_ UINT                 StartVertexLocation
 );
+typedef void (WINAPI *D3D11_PSSetShaderResources_pfn)(
+  _In_     ID3D11DeviceContext             *This,
+  _In_     UINT                             StartSlot,
+  _In_     UINT                             NumViews,
+  _In_opt_ ID3D11ShaderResourceView* const *ppShaderResourceViews
+);
 
 
-static D3D11Dev_CreateTexture2D_pfn  D3D11Dev_CreateTexture2D_Original = nullptr;
-static D3D11_DrawIndexed_pfn         D3D11_DrawIndexed_Original        = nullptr;
-static D3D11_Draw_pfn                D3D11_Draw_Original               = nullptr;
+static D3D11Dev_CreateTexture2D_pfn   D3D11Dev_CreateTexture2D_Original   = nullptr;
+static D3D11_DrawIndexed_pfn          D3D11_DrawIndexed_Original          = nullptr;
+static D3D11_Draw_pfn                 D3D11_Draw_Original                 = nullptr;
+static D3D11_PSSetShaderResources_pfn D3D11_PSSetShaderResources_Original = nullptr;
 
 
 extern HRESULT
@@ -475,6 +498,14 @@ D3D11_Draw_Override (
   _In_ ID3D11DeviceContext *This,
   _In_ UINT                 VertexCount,
   _In_ UINT                 StartVertexLocation );
+
+extern void
+WINAPI
+D3D11_PSSetShaderResources_Override (
+  _In_     ID3D11DeviceContext             *This,
+  _In_     UINT                             StartSlot,
+  _In_     UINT                             NumViews,
+  _In_opt_ ID3D11ShaderResourceView* const *ppShaderResourceViews );
 
 
 // Overview (Durante):
@@ -536,9 +567,41 @@ SK_FAR_CreateTexture2D (
     }
   }
 
-  return D3D11Dev_CreateTexture2D_Original ( This,
-                                               pDesc, pInitialData,
-                                                 ppTexture2D );
+
+  HRESULT hr = D3D11Dev_CreateTexture2D_Original ( This,
+                                                     pDesc, pInitialData,
+                                                       ppTexture2D );
+
+  //
+  // Hash textures so we can track the title texture
+  //
+  if (SUCCEEDED (hr) && pInitialData != nullptr && ppTexture2D != nullptr)
+  {
+    extern uint32_t
+    __cdecl // Meaningless in x64
+    crc32_tex (  _In_      const D3D11_TEXTURE2D_DESC   *pDesc,
+                 _In_      const D3D11_SUBRESOURCE_DATA *pInitialData,
+                 _Out_opt_       size_t                 *pSize,
+                 _Out_opt_       uint32_t               *pLOD0_CRC32 );
+
+    uint32_t checksum  = 0;
+    uint32_t cache_tag = 0;
+    size_t   size      = 0;
+    uint32_t top_crc32 = 0x00;
+
+    checksum = crc32_tex (pDesc, pInitialData, &size, &top_crc32);
+
+    if ( checksum == 0x713B879E ||
+         checksum == 0x013F2718 )
+    {
+      SK_LOG1 ( "Title Texture (%x) : ID3D11Texture2D (%ph)",
+                  checksum, *ppTexture2D );
+
+      far_title_textures.emplace (*ppTexture2D);
+    }
+  }
+
+  return hr;
 }
 
 
@@ -687,6 +750,57 @@ SK_FAR_Draw (
 }
 
 
+void
+WINAPI
+SK_FAR_PSSetShaderResources (
+  _In_     ID3D11DeviceContext             *This,
+  _In_     UINT                             StartSlot,
+  _In_     UINT                             NumViews,
+  _In_opt_ ID3D11ShaderResourceView* const *ppShaderResourceViews )
+{
+#if 0
+  for (int i = 0; i < NumViews; i++)
+  {
+    if (far_title_views.count (ppShaderResourceViews [i]))
+    {
+      CComPtr <ID3D11SamplerState> pSamplerState [8] = { nullptr };
+
+      This->PSGetSamplers (0, 8, &pSamplerState [0]);
+
+
+      static ID3D11SamplerState *nearest_sampler = nullptr;
+
+      if (nearest_sampler == nullptr)
+      {
+        D3D11_SAMPLER_DESC       sample_desc;
+        pSamplerState [0]->GetDesc (&sample_desc);
+
+        sample_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sample_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sample_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        sample_desc.Filter   = D3D11_FILTER_MIN_MAG_MIP_POINT;
+
+        CComPtr <ID3D11Device> pDev = nullptr;
+
+        This->GetDevice (&pDev);
+
+        pDev->CreateSamplerState (&sample_desc, &nearest_sampler);
+      }
+
+
+      for (int i = 0; i < 8; i++)
+      {
+        if (pSamplerState [i] != nullptr)
+          This->PSSetSamplers (i, 1, &nearest_sampler);
+      }
+    }
+  }
+#endif
+
+  D3D11_PSSetShaderResources_Original (This, StartSlot, NumViews, ppShaderResourceViews);
+}
+
+
 
 
 void
@@ -708,6 +822,12 @@ SK_FAR_InitPlugin (void)
                           SK_FAR_CreateShaderResourceView,
                             (LPVOID *)&D3D11Dev_CreateShaderResourceView_Original );
   MH_QueueEnableHook (D3D11Dev_CreateShaderResourceView_Override);
+
+  SK_CreateFuncHook ( L"ID3D11DeviceContext::PSSetShaderResources",
+                        D3D11_PSSetShaderResources_Override,
+                          SK_FAR_PSSetShaderResources,
+                            (LPVOID *)&D3D11_PSSetShaderResources_Original );
+  MH_QueueEnableHook (D3D11_PSSetShaderResources_Override);
 
 
   if (far_prefs == nullptr)
