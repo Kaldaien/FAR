@@ -19,7 +19,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.4.1.4"
+#define FAR_VERSION_NUM L"0.4.1.6"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -378,8 +378,33 @@ void
 CALLBACK
 SK_FAR_PluginKeyPress (BOOL Control, BOOL Shift, BOOL Alt, BYTE vkCode)
 {
-  if (Control && Shift && vkCode == VK_OEM_PERIOD)
-    SK_FAR_SetFramerateCap (game_state.enforce_cap);
+  if (Control && Shift)
+  { 
+    if (vkCode == VK_OEM_PERIOD)
+      SK_FAR_SetFramerateCap (game_state.enforce_cap);
+
+    else if (vkCode == VK_OEM_6) // ']'
+    {
+      if (__FAR_GlobalIllumWorkGroupSize < 8)
+        __FAR_GlobalIllumWorkGroupSize = 8;
+
+      __FAR_GlobalIllumWorkGroupSize <<= 1ULL;
+
+      if (__FAR_GlobalIllumWorkGroupSize > 128)
+        __FAR_GlobalIllumWorkGroupSize = 128;
+    }
+
+    else if (vkCode == VK_OEM_4) // '['
+    {
+      if (__FAR_GlobalIllumWorkGroupSize > 128)
+        __FAR_GlobalIllumWorkGroupSize = 128;
+
+      __FAR_GlobalIllumWorkGroupSize >>= 1UL;
+
+      if (__FAR_GlobalIllumWorkGroupSize < 16)
+        __FAR_GlobalIllumWorkGroupSize = 0;
+    }
+  }
 
   SK_PluginKeyPress_Original (Control, Shift, Alt, vkCode);
 }
