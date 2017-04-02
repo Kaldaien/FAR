@@ -19,7 +19,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.4.1.6"
+#define FAR_VERSION_NUM L"0.5.0"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -56,6 +56,8 @@ iSK_INI*              far_prefs                 = nullptr;
 wchar_t               far_prefs_file [MAX_PATH] = { L'\0' };
 sk::ParameterInt*     far_gi_workgroups         = nullptr;
 sk::ParameterInt*     far_bloom_width           = nullptr;
+sk::ParameterInt*     far_ao_width              = nullptr;
+sk::ParameterInt*     far_ao_height             = nullptr;
 sk::ParameterBool*    far_limiter_busy          = nullptr;
 sk::ParameterBool*    far_uncap_fps             = nullptr;
 sk::ParameterBool*    far_slow_state_cache      = nullptr;
@@ -72,6 +74,8 @@ static std::unordered_set <ID3D11ShaderResourceView *> far_title_views;
 int    __FAR_GlobalIllumWorkGroupSize =   128;
 bool   __FAR_GlobalIllumCompatMode    =  true;
 int    __FAR_BloomWidth               =    -1; // Set at startup from user prefs, never changed
+int    __FAR_AOHeight                 =    -1;
+int    __FAR_AOWidth                  =    -1;
 double __FAR_TargetFPS                = 59.94;
 
 
@@ -565,31 +569,60 @@ SK_FAR_CreateTexture2D (
   static UINT  resW      = __FAR_BloomWidth; // horizontal resolution, must be set at application start
   static float resFactor = resW / 1600.0f;   // the factor required to scale to the largest part of the pyramid
 
-  // R11G11B10 float textures of these sizes are part of the BLOOM PYRAMID
-  // Note: we do not manipulate the 50x28 buffer
-  //    -- it's read by a compute shader and the whole screen white level can be off if it is the wrong size
-  if (pDesc->Format == DXGI_FORMAT_R11G11B10_FLOAT)
+  switch (pDesc->Format)
   {
-    if (   (pDesc->Width == 800 && pDesc->Height == 450)
-        || (pDesc->Width == 400 && pDesc->Height == 225)
-        || (pDesc->Width == 200 && pDesc->Height == 112)
-        || (pDesc->Width == 100 && pDesc->Height == 56) 
-        /*|| (pDesc->Width == 50 && pDesc->Height == 28)*/ )
+    // R11G11B10 float textures of these sizes are part of the BLOOM PYRAMID
+    // Note: we do not manipulate the 50x28 buffer
+    //    -- it's read by a compute shader and the whole screen white level can be off if it is the wrong size
+    case DXGI_FORMAT_R11G11B10_FLOAT:
     {
-      SK_LOG1 (L"Bloom Tex (%lux%lu)", pDesc->Width, pDesc->Height);
+      if ( __FAR_BloomWidth != -1 && (
+               (pDesc->Width == 800 && pDesc->Height == 450)
+            || (pDesc->Width == 400 && pDesc->Height == 225)
+            || (pDesc->Width == 200 && pDesc->Height == 112)
+            || (pDesc->Width == 100 && pDesc->Height == 56) 
+            /*|| (pDesc->Width == 50 && pDesc->Height == 28)*/ )
+         )
+      {
+        SK_LOG1 (L"Bloom Tex (%lux%lu)", pDesc->Width, pDesc->Height);
 
-      D3D11_TEXTURE2D_DESC copy = *pDesc;
+        D3D11_TEXTURE2D_DESC copy = *pDesc;
 
-      // Scale the upper parts of the pyramid fully
-      // and lower levels progressively less
-      float pyramidLevelFactor  = (pDesc->Width - 50) / 750.0f;
-      float scalingFactor       = 1.0f + (resFactor - 1.0f) * pyramidLevelFactor;
+        // Scale the upper parts of the pyramid fully
+        // and lower levels progressively less
+        float pyramidLevelFactor  = (pDesc->Width - 50) / 750.0f;
+        float scalingFactor       = 1.0f + (resFactor - 1.0f) * pyramidLevelFactor;
 
-      copy.Width  = (UINT)(copy.Width  * scalingFactor);
-      copy.Height = (UINT)(copy.Height * scalingFactor);
+        copy.Width  = (UINT)(copy.Width  * scalingFactor);
+        copy.Height = (UINT)(copy.Height * scalingFactor);
 
-      pDesc       = &copy;
-    }
+        pDesc       = &copy;
+      }
+    } break;
+
+    // 800x450 R8G8B8A8_UNORM is the buffer used to store the AO result and subsequently blur it
+    // 800x450 R32_FLOAT is used to store hierarchical Z information (individual mipmap levels are rendered to)
+    //                   and serves as input to the main AO pass
+    // 800x450 D24_UNORM_S8_UINT depth/stencil used together with R8G8B8A8_UNORM buffer for something (unclear) later on
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R32_FLOAT:
+    case DXGI_FORMAT_D24_UNORM_S8_UINT:
+    {
+      if (__FAR_AOWidth != -1 && pDesc->Width == 800 && pDesc->Height == 450)
+      {
+        SK_LOG0 ( "AO Buffer (%lux%lu - Fmt: %x",
+                    pDesc->Width, pDesc->Height,
+                    pDesc->Format );
+
+        // set to our display resolution instead
+        D3D11_TEXTURE2D_DESC copy = *pDesc;
+
+        copy.Width  = __FAR_AOWidth;
+        copy.Height = __FAR_AOHeight;
+
+        pDesc = &copy;
+      }
+    } break;
   }
 
 
@@ -648,7 +681,7 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
 
   pDevCtx->RSGetViewports (&numViewports, nullptr);
 
-  if (numViewports == 1)
+  if (numViewports == 1 && (__FAR_BloomWidth != -1 || __FAR_AOWidth != -1))
   {
     D3D11_VIEWPORT vp;
 
@@ -657,7 +690,9 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
     if (   (vp.Width == 800 && vp.Height == 450)
         || (vp.Width == 400 && vp.Height == 225)
         || (vp.Width == 200 && vp.Height == 112)
-        || (vp.Width == 100 && vp.Height == 56) )
+        || (vp.Width == 100 && vp.Height == 56 )
+        || (vp.Width == 50  && vp.Height == 28 )
+        || (vp.Width == 25  && vp.Height == 14 ) )
     {
       CComPtr <ID3D11RenderTargetView> rtView = nullptr;
 
@@ -669,7 +704,9 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
 
         rtView->GetDesc (&desc);
 
-        if (desc.Format == DXGI_FORMAT_R11G11B10_FLOAT)
+        if ( desc.Format == DXGI_FORMAT_R11G11B10_FLOAT || // Bloom
+             desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM  || // AO
+             desc.Format == DXGI_FORMAT_R32_FLOAT )        // AO
         {
           CComPtr <ID3D11Resource> rt = nullptr;
 
@@ -694,6 +731,14 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
                 vp.Width  = (float)texdesc.Width;
                 vp.Height = (float)texdesc.Height;
 
+                // AO
+                //   If we are at mip slice N, divide by 2^N
+                if (desc.Texture2D.MipSlice > 0)
+                {
+                  vp.Width  = (float)(texdesc.Width  >> desc.Texture2D.MipSlice);
+                  vp.Height = (float)(texdesc.Height >> desc.Texture2D.MipSlice);
+                }
+
                 pDevCtx->RSSetViewports (1, &vp);
 
                 // The constant buffer is a bit more difficult
@@ -704,37 +749,71 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
                 // but it works as long as the game only renders from 1 thread (which it does)
                 // NOTE: rather than storing them statically here (basically a global) the lifetime should probably be managed
 
-                static std::map <UINT, ID3D11Buffer*> buffers;
+                CComPtr <ID3D11Device> dev;
+                pDevCtx->GetDevice (&dev);
 
-                auto iter = buffers.find (texdesc.Width);
-                if (iter == buffers.cend ())
+                D3D11_BUFFER_DESC buffdesc;
+                buffdesc.ByteWidth           = 16;
+                buffdesc.Usage               = D3D11_USAGE_IMMUTABLE;
+                buffdesc.BindFlags           = D3D11_BIND_CONSTANT_BUFFER;
+                buffdesc.CPUAccessFlags      = 0;
+                buffdesc.MiscFlags           = 0;
+                buffdesc.StructureByteStride = 16;
+
+                D3D11_SUBRESOURCE_DATA initialdata;
+
+                // Bloom
+                //   If we are not rendering to a mip map for hierarchical Z, the format is 
+                //   [ 0.5f / W, 0.5f / H, W, H ] (half-pixel size and total dimensions)
+                if (desc.Texture2D.MipSlice == 0 && __FAR_BloomWidth != -1)
                 {
-                  float constants [4] = {
-                    0.5f / vp.Width, 0.5f / vp.Height,
-                    (float)vp.Width, (float)vp.Height
-                  };
+                  static std::map <UINT, ID3D11Buffer*> buffers;
 
-                  CComPtr <ID3D11Device> dev;
-                  pDevCtx->GetDevice (&dev);
+                  auto iter = buffers.find (texdesc.Width);
+                  if (iter == buffers.cend ())
+                  {
+                    float constants [4] = {
+                      0.5f / vp.Width, 0.5f / vp.Height,
+                      (float)vp.Width, (float)vp.Height
+                    };
 
-                  D3D11_BUFFER_DESC buffdesc;
-                  buffdesc.ByteWidth           = 16;
-                  buffdesc.Usage               = D3D11_USAGE_IMMUTABLE;
-                  buffdesc.BindFlags           = D3D11_BIND_CONSTANT_BUFFER;
-                  buffdesc.CPUAccessFlags      = 0;
-                  buffdesc.MiscFlags           = 0;
-                  buffdesc.StructureByteStride = 16;
+                    initialdata.pSysMem = constants;
 
-                  D3D11_SUBRESOURCE_DATA initialdata;
-                  initialdata.pSysMem = constants;
+                    ID3D11Buffer                                *replacementbuffer = nullptr;
+                    dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
 
-                  ID3D11Buffer                                *replacementbuffer = nullptr;
-                  dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
+                    buffers [texdesc.Width] = replacementbuffer;
 
-                  buffers [texdesc.Width] = replacementbuffer;
+                    pDevCtx->PSSetConstantBuffers (12, 1, &buffers [texdesc.Width]);
+                  }
+
+                  // AO
+                  //
+                  //   For hierarchical Z mips, the format is
+                  //   [ W, H, LOD (Mip-1), 0.0f ]
+                  else if (__FAR_AOWidth != -1)
+                  {
+                    static std::map <UINT, ID3D11Buffer*> mipBuffers;
+
+                    auto iter = mipBuffers.find (desc.Texture2D.MipSlice);
+                    if (iter == mipBuffers.cend ())
+                    {
+                      float constants [4] = {
+                                           vp.Width,   vp.Height,
+                        (float)desc.Texture2D.MipSlice - 1, 0.0f
+                      };
+
+                      initialdata.pSysMem = constants;
+
+                      ID3D11Buffer                                *replacementbuffer = nullptr;
+                      dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
+
+                      mipBuffers [texdesc.Width] = replacementbuffer;
+                    }
+
+                    pDevCtx->PSSetConstantBuffers (8, 1, &mipBuffers [texdesc.Width]);
+                  }
                 }
-
-                pDevCtx->PSSetConstantBuffers (12, 1, &buffers [texdesc.Width]);
               }
             }
           }
@@ -984,6 +1063,53 @@ SK_FAR_InitPlugin (void)
     }
 
 
+    far_ao_width =
+      static_cast <sk::ParameterInt *>
+        (far_factory.create_parameter <int> (L"Width of AO Post-Process"));
+
+    far_ao_width->register_to_ini ( far_prefs,
+                                         L"FAR.Lighting",
+                                           L"AOWidth" );
+
+    if (! far_ao_width->load ())
+    {
+      far_ao_width->set_value (-1);
+      far_ao_width->store     (  );
+    }
+
+    __FAR_AOWidth = far_ao_width->get_value ();
+
+    // AO Width must be > 0 or -1, never 0!
+    if (__FAR_AOWidth <= 0) {
+      __FAR_AOWidth =                -1;
+      far_ao_width->set_value (__FAR_AOWidth);
+      far_ao_width->store     (             );
+    }
+
+    far_ao_height =
+      static_cast <sk::ParameterInt *>
+        (far_factory.create_parameter <int> (L"Height of AO Post-Process"));
+
+    far_ao_height->register_to_ini ( far_prefs,
+                                       L"FAR.Lighting",
+                                         L"AOHeight" );
+
+    if (! far_ao_height->load ())
+    {
+      far_ao_height->set_value (-1);
+      far_ao_height->store     (  );
+    }
+
+    __FAR_AOHeight = far_ao_height->get_value ();
+
+    // AO Height must be > 0 or -1, never 0!
+    if (__FAR_AOHeight <= 0) {
+      __FAR_AOHeight =                -1;
+      far_ao_height->set_value (__FAR_AOHeight);
+      far_ao_height->store     (              );
+    }
+
+
     SK_CreateFuncHook ( L"SK_BeginBufferSwap", SK_BeginBufferSwap,
                                                SK_FAR_BeginFrame,
                                     (LPVOID *)&SK_BeginFrame_Original );
@@ -993,9 +1119,11 @@ SK_FAR_InitPlugin (void)
     far_prefs->write (far_prefs_file);
 
 
-    // If overriding bloom resolution, add these additional hooks
+    // If overriding bloom/AO resolution, add these additional hooks
     //
-    if (__FAR_BloomWidth != -1)
+    if (   __FAR_BloomWidth != -1 ||
+         ( __FAR_AOWidth    != -1 && 
+           __FAR_AOHeight   != -1 ) )
     {
       SK_CreateFuncHook ( L"ID3D11Device::CreateTexture2D",
                             D3D11Dev_CreateTexture2D_Override,
@@ -1043,11 +1171,15 @@ SK_FAR_ControlPanel (void)
 
   if (ImGui::CollapsingHeader("NieR: Automata", ImGuiTreeNodeFlags_DefaultOpen))
   {
-    if (ImGui::TreeNodeEx ("Bloom", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ImGui::TreeNodeEx ("Post-Processing", ImGuiTreeNodeFlags_DefaultOpen))
     {
-      int bloom_behavior = (far_bloom_width->get_value () != -1);
+      ImGui::Text ("Bloom"); ImGui::TreePush ("");
 
-      if (ImGui::RadioButton ("Default Resolution (800x450)", &bloom_behavior, 0))
+      int bloom_behavior = (far_bloom_width->get_value () != -1) ? 1 : 0;
+
+      ImGui::BeginGroup ();
+
+      if (ImGui::RadioButton ("Default Bloom Res. (800x450)", &bloom_behavior, 0))
       {
         changed = true;
 
@@ -1058,7 +1190,7 @@ SK_FAR_ControlPanel (void)
       ImGui::SameLine ();
 
       // 1/4 resolution actually, but this is easier to describe to the end-user
-      if (ImGui::RadioButton ("Native Resolution",            &bloom_behavior, 1))
+      if (ImGui::RadioButton ("Native Bloom Res.",            &bloom_behavior, 1))
       {
         far_bloom_width->set_value ((int)ImGui::GetIO ().DisplaySize.x);
         far_bloom_width->store     ();
@@ -1075,7 +1207,52 @@ SK_FAR_ControlPanel (void)
         ImGui::EndTooltip  ();
       }
 
-      ImGui::TreePop ();
+      ImGui::EndGroup ();
+      ImGui::TreePop  ();
+
+      ImGui::Text     ("Ambient Occlusion");
+      ImGui::TreePush ("");
+
+      int ao_behavior = (far_ao_width->get_value () != -1) ? 3 : 2;
+
+      ImGui::BeginGroup      ();
+      if (ImGui::RadioButton ("Default AO Res.    (800x450)", &ao_behavior, 2))
+      {
+        changed = true;
+
+        far_ao_width->set_value (-1);
+        far_ao_width->store     ();
+
+        far_ao_height->set_value (-1);
+        far_ao_height->store     ();
+      }
+
+      ImGui::SameLine ();
+
+      // 1/4 resolution actually, but this is easier to describe to the end-user
+      if (ImGui::RadioButton ("Native AO Res.   ",            &ao_behavior, 3))
+      {
+        far_ao_width->set_value  ((int)(ImGui::GetIO ().DisplaySize.x / 2.0f));
+        far_ao_width->store      ();
+
+        far_ao_height->set_value ((int)(ImGui::GetIO ().DisplaySize.y / 2.0f));
+        far_ao_height->store     ();
+
+        changed = true;
+      }
+
+      if (ImGui::IsItemHovered ()) {
+        ImGui::BeginTooltip ();
+        ImGui::Text        ("Improve AO Quality");
+        ImGui::Separator   ();
+        ImGui::BulletText  ("Performance Cost is Negligible");
+        ImGui::BulletText  ("Changing this setting requires a full application restart");
+        ImGui::EndTooltip  ();
+      }
+
+      ImGui::EndGroup ();
+      ImGui::TreePop  ();
+      ImGui::TreePop  ();
     }
 
     if (ImGui::TreeNodeEx ("Lighting", ImGuiTreeNodeFlags_DefaultOpen))
