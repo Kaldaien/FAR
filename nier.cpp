@@ -19,7 +19,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.0.2"
+#define FAR_VERSION_NUM L"0.5.0.3"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -774,6 +774,8 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
                   auto iter = buffers.find (texdesc.Width);
                   if (iter == buffers.cend ())
                   {
+                    SK_LOG3 ("Create Bloom Buffer (%lu)", texdesc.Width);
+
                     float constants [4] = {
                       0.5f / vp.Width, 0.5f / vp.Height,
                       (float)vp.Width, (float)vp.Height
@@ -801,6 +803,8 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
                   auto iter = mipBuffers.find (desc.Texture2D.MipSlice);
                   if (iter == mipBuffers.cend ())
                   {
+                    SK_LOG3 ("Create AO Buffer (%lu)", desc.Texture2D.MipSlice);
+
                     float constants [4] = {
                                          vp.Width,   vp.Height,
                       (float)desc.Texture2D.MipSlice - 1, 0.0f
@@ -811,10 +815,10 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
                     ID3D11Buffer                                *replacementbuffer = nullptr;
                     dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
 
-                    mipBuffers [texdesc.Width] = replacementbuffer;
+                    mipBuffers [desc.Texture2D.MipSlice] = replacementbuffer;
                   }
 
-                  pDevCtx->PSSetConstantBuffers (8, 1, &mipBuffers [texdesc.Width]);
+                  pDevCtx->PSSetConstantBuffers (8, 1, &mipBuffers [desc.Texture2D.MipSlice]);
                 }
               }
             }
