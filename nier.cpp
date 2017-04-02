@@ -786,33 +786,33 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
 
                     pDevCtx->PSSetConstantBuffers (12, 1, &buffers [texdesc.Width]);
                   }
+                }
 
-                  // AO
-                  //
-                  //   For hierarchical Z mips, the format is
-                  //   [ W, H, LOD (Mip-1), 0.0f ]
-                  else if (__FAR_AOWidth != -1)
+                // AO
+                //
+                //   For hierarchical Z mips, the format is
+                //   [ W, H, LOD (Mip-1), 0.0f ]
+                else if (__FAR_AOWidth != -1)
+                {
+                  static std::map <UINT, ID3D11Buffer*> mipBuffers;
+
+                  auto iter = mipBuffers.find (desc.Texture2D.MipSlice);
+                  if (iter == mipBuffers.cend ())
                   {
-                    static std::map <UINT, ID3D11Buffer*> mipBuffers;
+                    float constants [4] = {
+                                         vp.Width,   vp.Height,
+                      (float)desc.Texture2D.MipSlice - 1, 0.0f
+                    };
 
-                    auto iter = mipBuffers.find (desc.Texture2D.MipSlice);
-                    if (iter == mipBuffers.cend ())
-                    {
-                      float constants [4] = {
-                                           vp.Width,   vp.Height,
-                        (float)desc.Texture2D.MipSlice - 1, 0.0f
-                      };
+                    initialdata.pSysMem = constants;
 
-                      initialdata.pSysMem = constants;
+                    ID3D11Buffer                                *replacementbuffer = nullptr;
+                    dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
 
-                      ID3D11Buffer                                *replacementbuffer = nullptr;
-                      dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
-
-                      mipBuffers [texdesc.Width] = replacementbuffer;
-                    }
-
-                    pDevCtx->PSSetConstantBuffers (8, 1, &mipBuffers [texdesc.Width]);
+                    mipBuffers [texdesc.Width] = replacementbuffer;
                   }
+
+                  pDevCtx->PSSetConstantBuffers (8, 1, &mipBuffers [texdesc.Width]);
                 }
               }
             }
