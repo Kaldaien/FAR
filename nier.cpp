@@ -19,7 +19,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.0"
+#define FAR_VERSION_NUM L"0.5.0.2"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 
@@ -630,6 +630,7 @@ SK_FAR_CreateTexture2D (
                                                      pDesc, pInitialData,
                                                        ppTexture2D );
 
+#if 0
   //
   // Hash textures so we can track the title texture
   //
@@ -658,6 +659,7 @@ SK_FAR_CreateTexture2D (
       far_title_textures.emplace (*ppTexture2D);
     }
   }
+#endif
 
   return hr;
 }
@@ -783,9 +785,9 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
                     dev->CreateBuffer (&buffdesc, &initialdata, &replacementbuffer);
 
                     buffers [texdesc.Width] = replacementbuffer;
-
-                    pDevCtx->PSSetConstantBuffers (12, 1, &buffers [texdesc.Width]);
                   }
+
+                  pDevCtx->PSSetConstantBuffers (12, 1, &buffers [texdesc.Width]);
                 }
 
                 // AO
