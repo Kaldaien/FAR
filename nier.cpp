@@ -19,8 +19,13 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.0.3"
+#define FAR_VERSION_NUM L"0.5.0.5"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
+
+// Block until update finishes, otherwise the update dialog
+//   will be dismissed as the game crashes when it tries to
+//     draw the first frame.
+volatile LONG __FAR_init = FALSE;
 
 
 struct far_game_state_s {
@@ -418,6 +423,9 @@ HRESULT
 STDMETHODCALLTYPE
 SK_FAR_PresentFirstFrame (IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
 {
+  // Wait for the mod to init, it may be held up during version check
+  while (! InterlockedAdd (&__FAR_init, 0)) ;
+
   // This actually determines whether the DLL is dxgi.dll or SpecialK64.dll.
   //
   //   If it is the latter, disable this feature -- this prevents nasty
@@ -1156,6 +1164,8 @@ SK_FAR_InitPlugin (void)
     SK_GetCommandProcessor ()->AddVariable ("FAR.GIWorkgroups", SK_CreateVar (SK_IVariable::Int,     &__FAR_GlobalIllumWorkGroupSize));
     //SK_GetCommandProcessor ()->AddVariable ("FAR.BusyWait",     SK_CreateVar (SK_IVariable::Boolean, &__FAR_BusyWait));
   }
+
+  InterlockedExchange (&__FAR_init, 1);
 }
 
 // Not currently used
@@ -1238,10 +1248,10 @@ SK_FAR_ControlPanel (void)
       // 1/4 resolution actually, but this is easier to describe to the end-user
       if (ImGui::RadioButton ("Native AO Res.   ",            &ao_behavior, 3))
       {
-        far_ao_width->set_value  ((int)(ImGui::GetIO ().DisplaySize.x / 2.0f));
+        far_ao_width->set_value  ((int)(ImGui::GetIO ().DisplaySize.x));
         far_ao_width->store      ();
 
-        far_ao_height->set_value ((int)(ImGui::GetIO ().DisplaySize.y / 2.0f));
+        far_ao_height->set_value ((int)(ImGui::GetIO ().DisplaySize.y));
         far_ao_height->store     ();
 
         changed = true;
