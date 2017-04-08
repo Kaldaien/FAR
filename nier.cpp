@@ -19,7 +19,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.2"
+#define FAR_VERSION_NUM L"0.5.2.1"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -734,9 +734,9 @@ SK_FAR_CreateTexture2D (
       {
         static int num_r11g11b10_textures = 0;
 
-        num_r11g11b10_textures++; // First two R11G11B10 textures are not for bloom
+        num_r11g11b10_textures++;
 
-        if (num_r11g11b10_textures > 1)
+        if (num_r11g11b10_textures > far_bloom.skip)
         {
           bloom = true;
 
