@@ -20,7 +20,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.4"
+#define FAR_VERSION_NUM L"0.5.4.2"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -2113,34 +2113,34 @@ SK_FAR_ControlPanel (void)
           return false;
         };
 
-      ImGui::TreePush    ("");
-      ImGui::SliderFloat ("HUD Opacity", game_state.pHUDOpacity, 0.0f, 2.0f);
+      ImGui::TreePush      ("");
+      ImGui::SliderFloat   ("HUD Opacity", game_state.pHUDOpacity, 0.0f, 2.0f);
 
-      ImGui::Text        ("HUD Free Screenshot Keybinding:  "); ImGui::SameLine ();
+      ImGui::Text          ("HUD Free Screenshot Keybinding:  "); ImGui::SameLine ();
 
-      Keybinding (&__FAR_HUDLESS.keybind, far_hudless_binding);
+      changed |= Keybinding (&__FAR_HUDLESS.keybind, far_hudless_binding);
 
       ImGui::Separator ();
 
-      if (ImGui::Checkbox ("Lock Camera Origin", &far_cam.center_lock))
+      if (ImGui::Checkbox   ("Lock Camera Origin", &far_cam.center_lock))
       {
         far_cam.center_lock = (! far_cam.center_lock);
         far_cam.toggleCenterLock ();
       }
 
-      ImGui::SameLine ();
-      Keybinding      (&far_cam.center_binding, far_center_lock);
+      ImGui::SameLine       ();
+      changed |= Keybinding (&far_cam.center_binding, far_center_lock);
 
-      if (ImGui::Checkbox ("Lock Camera Focus", &far_cam.focus_lock))
+      if (ImGui::Checkbox   ("Lock Camera Focus", &far_cam.focus_lock))
       {
         far_cam.focus_lock = (! far_cam.focus_lock);
         far_cam.toggleFocusLock ();
       }
 
-      ImGui::SameLine ();
-      Keybinding      (&far_cam.focus_binding, far_focus_lock);
+            ImGui::SameLine ();
+      changed |= Keybinding (&far_cam.focus_binding, far_focus_lock);
 
-      ImGui::TreePop  ();
+      ImGui::TreePop        ();
     }
 
     ImGui::TreePop       ( );
