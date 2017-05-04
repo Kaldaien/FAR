@@ -23,7 +23,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.6"
+#define FAR_VERSION_NUM L"0.5.6.4"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -33,7 +33,7 @@ volatile LONG __FAR_init = FALSE;
 
 
 //#define WORKING_FPS_UNCAP
-//#define WORKING_CAMERA_CONTROLS
+#define WORKING_CAMERA_CONTROLS
 //#define WORKING_GAMESTATES
 #define WORKING_FPS_SLEEP_FIX
 
@@ -45,7 +45,7 @@ struct far_game_state_s {
   DWORD* pHacking    = (DWORD *)0x1410E0AB4;
   DWORD* pShortcuts  = (DWORD *)0x1413FC35C;
 
-  float* pHUDOpacity = (float *)0x14196C63C;
+  float* pHUDOpacity = (float *)0x1419861BC;//14196C63C;
 
   bool   capped      = true;  // Actual state of limiter
   bool   enforce_cap = true;  // User's current preference
@@ -124,15 +124,19 @@ struct far_cam_state_s {
   };
 
   bool toggleCenterLock (void) {
-    if (center_lock) SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4cdc89 F0111DCC00D290F");
-    else             SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4cdc89 F90909090909090");
+    // { 0x0F, 0xC6, 0xC0, 0x00, 0x0F, 0x5C, 0xF1, 0x0F, 0x59, 0xF0, 0x0F, 0x58, 0xCE }                    -0x7 = Center Lock
+    if (center_lock) SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4d5729 0F0112FCD00D290F");
+    else             SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4d5729 0F90909090909090");
+
+    //4cdc89
 
     return (center_lock = (! center_lock));
   }
 
   bool toggleFocusLock (void) {
-    if (focus_lock) SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4cdbc8 850111DD910D290F");
-    else            SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4cdbc8 8590909090909090");
+    // Center Lock - C1
+    if (focus_lock) SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4D5668 850112FDA10D290F");
+    else            SK_GetCommandProcessor ()->ProcessCommandLine ("mem l 4D5668 8590909090909090");
 
     return (focus_lock = (! focus_lock));
   }
@@ -425,6 +429,8 @@ SK_FAR_SetLimiterWait (SK_FAR_WaitBehavior behavior)
       pmax_tstep = pmin_tstep + 0x2c;
 
       dll_log.Log (L"[ FARLimit ]  Scanned Framerate Limiter TStepMin Addr.: 0x%p", pmin_tstep);
+
+      //{ 0xF3, 0x0F, 0x11, 0x44, 0x24, 0x20, 0xF3, 0x0F, 0x11, 0x4C, 0x24, 0x24, 0xF3, 0x0F, 0x11, 0x54, 0x24, 0x28, 0xF3, 0x0F, 0x11, 0x5C, 0x24, 0x2C }    (-4) = HUD Opacity
     }
   }
 
@@ -580,7 +586,6 @@ SK_FAR_EndFrame (void)
     }
   }
 
-#ifdef WORKING_CAMERA_CONTROLS
   XINPUT_STATE state;
   if (__FAR_Freelook && SK_XInput_PollController (0, &state))
   {
@@ -660,7 +665,6 @@ SK_FAR_EndFrame (void)
     (*far_cam.pCamera) [0] = pos    [0] + dX;
     (*far_cam.pCamera) [2] = pos    [2] + dY;
   }
-#endif
 }
 
 
@@ -691,9 +695,9 @@ typedef void (CALLBACK *SK_PluginKeyPress_pfn)(
 SK_PluginKeyPress_pfn SK_PluginKeyPress_Original;
 
 #define SK_MakeKeyMask(vKey,ctrl,shift,alt) \
-  (UINT)((vKey) | ((ctrl) != 0) << 9)  |    \
-                  ((shift != 0) << 10) |    \
-                  ((alt   != 0) << 11)
+  (UINT)((vKey) | (((ctrl) != 0) <<  9) |   \
+                  (((shift)!= 0) << 10) |   \
+                  (((alt)  != 0) << 11))
 
 #define SK_ControlShiftKey(vKey) SK_MakeKeyMask ((vKey), true, true, false)
 
@@ -795,7 +799,7 @@ SK_FAR_PresentFirstFrame (IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Fl
   //
   //   If it is the latter, disable this feature -- this prevents nasty
   //     surprises if the plug-in falls out of maintenance.
-  if (! SK_IsInjected ())
+  //if (! SK_IsInjected ())
   {
     game_state.enforce_cap = (! far_uncap_fps->get_value ());
 
@@ -2236,7 +2240,6 @@ SK_FAR_ControlPanel (void)
       ImGui::TreePop ();
     }
 
-#ifdef WORKING_CAMERA_CONTROLS
     if (ImGui::CollapsingHeader ("Camera and HUD"))
     {
       auto Keybinding = [](SK_Keybind* binding, sk::ParameterStringW* param) ->
@@ -2307,7 +2310,6 @@ SK_FAR_ControlPanel (void)
 
       ImGui::TreePop        ();
     }
-#endif
 
     ImGui::TreePop       ( );
     ImGui::PopStyleColor (3);
