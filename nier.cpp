@@ -1,3 +1,36 @@
+//
+// Copyright 2017  Andon  "Kaldaien" Coleman
+//                 Niklas "DrDaxxy" Kielblock,
+//                 Peter  "Durante" Thoman,
+//
+//        Francesco149, Idk31, Smithfield, and GitHub contributors.
+//
+//
+//    Steam Moderator and apparent pirate Zefar has assumed ownership of the
+//      Steam support thread against the author's express written wishes;
+//        although unafilliated with the project, he now holds Intellectual
+//          Property ransom that does not belong to him.
+//
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+// 
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+//
+
 #define _CRT_SECURE_NO_WARNINGS
 
 #include <SpecialK/dxgi_backend.h>
@@ -23,7 +56,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.6.5"
+#define FAR_VERSION_NUM L"0.5.6.13"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -144,6 +177,12 @@ struct far_cam_state_s {
 } static far_cam;
 
 bool __FAR_Freelook = false;
+
+
+typedef void (__stdcall *SK_PlugIn_ControlPanelWidget_pfn)(void);
+        void  __stdcall SK_FAR_ControlPanel               (void);
+
+SK_PlugIn_ControlPanelWidget_pfn SK_PlugIn_ControlPanelWidget_Original = nullptr;
 
 
 #include <unordered_set>
@@ -1605,15 +1644,63 @@ SK_FAR_PSSetShaderResources (
 
 
 
+extern
+__declspec (noinline)
+void
+__stdcall
+SK_ImGui_DrawEULA_PlugIn (LPVOID reserved);
+
+__declspec (noinline)
+void
+__stdcall
+SK_FAR_EULA_Insert (LPVOID reserved)
+{
+  ImGuiIO& io =
+    ImGui::GetIO ();
+
+  if (ImGui::CollapsingHeader ("FAR (Fix Automata Resolution)", ImGuiTreeNodeFlags_DefaultOpen))
+  {
+    ImGui::TextWrapped ( " Copyright 2017  Andon  \"Kaldaien\" Coleman\n"
+                         "                 Niklas \"DrDaxxy\" Kielblock,\n"
+                         "                 Peter  \"Durante\" Thoman,\n"
+                         "\n"
+                         "        Francesco149, Idk31, Smithfield, and GitHub contributors.\n"
+                         "\n"
+                         "\n"
+                         "    Steam Moderator and apparent pirate Zefar has assumed ownership of the\n"
+                         "      Steam support thread against the author's express written wishes;\n"
+                         "        although unafilliated with the project, he now holds Intellectual\n"
+                         "          Property ransom that does not belong to him.\n"
+                         "\n"
+                         "\n"
+                         " Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+                         " of this software and associated documentation files (the \"Software\"), to\n"
+                         " deal in the Software without restriction, including without limitation the\n"
+                         " rights to use, copy, modify, merge, publish, distribute, sublicense, and/or\n"
+                         " sell copies of the Software, and to permit persons to whom the Software is\n"
+                         " furnished to do so, subject to the following conditions:\n"
+                         " \n"
+                         " The above copyright notice and this permission notice shall be included in\n"
+                         " all copies or substantial portions of the Software.\n"
+                         "\n"
+                         " THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+                         " IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+                         " FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL\n"
+                         " THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+                         " LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING\n"
+                         " FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER\n"
+                         " DEALINGS IN THE SOFTWARE.\n" );
+  }
+}
+
 
 void
 SK_FAR_InitPlugin (void)
 {
-  if (! SK_IsInjected ())
-    SK_FAR_CheckVersion (nullptr);
-
   SK_SetPluginName (FAR_VERSION_STR);
 
+  if (! SK_IsInjected ())
+    SK_FAR_CheckVersion (nullptr);
 
   SK_CreateFuncHook ( L"ID3D11Device::CreateBuffer",
                         D3D11Dev_CreateBuffer_Override,
@@ -1650,6 +1737,22 @@ SK_FAR_InitPlugin (void)
                           SK_FAR_DrawIndexed,
                             (LPVOID *)&D3D11_DrawIndexed_Original );
   MH_QueueEnableHook (D3D11_DrawIndexed_Override);
+
+  SK_CreateFuncHook ( L"SK_PlugIn_ControlPanelWidget",
+                        SK_PlugIn_ControlPanelWidget,
+                          SK_FAR_ControlPanel,
+               (LPVOID *)&SK_PlugIn_ControlPanelWidget_Original );
+
+  MH_QueueEnableHook (SK_PlugIn_ControlPanelWidget);
+
+  LPVOID dontcare = nullptr;
+
+  SK_CreateFuncHook ( L"SK_ImGUI_DrawEULA_PlugIn",
+                      SK_ImGui_DrawEULA_PlugIn,
+                      SK_FAR_EULA_Insert,
+                     &dontcare );
+
+  MH_QueueEnableHook (SK_ImGui_DrawEULA_PlugIn);
 
 typedef void (WINAPI *D3D11_DrawInstanced_pfn)(
   _In_ ID3D11DeviceContext *This,
@@ -2014,7 +2117,6 @@ SK_FAR_ShutdownPlugin (const wchar_t* backend)
 
   return true;
 }
-
 
 void
 __stdcall
@@ -2427,7 +2529,7 @@ far_game_state_s::capFPS (void)
   else {
     // Save and later restore FPS
     //
-    //   Avoid using Speical K's command processor because that
+    //   Avoid using Special K's command processor because that
     //     would store this value persistently.
     __FAR_TargetFPS = SK::Framerate::GetLimiter ()->get_limit ();
                       SK::Framerate::GetLimiter ()->set_limit (59.94);
