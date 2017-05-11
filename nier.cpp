@@ -1,16 +1,9 @@
 //
 // Copyright 2017  Andon  "Kaldaien" Coleman
-//                 Niklas "DrDaxxy" Kielblock,
-//                 Peter  "Durante" Thoman,
+//                 Niklas "DrDaxxy"  Kielblock,
+//                 Peter  "Durante"  Thoman,
 //
 //        Francesco149, Idk31, Smithfield, and GitHub contributors.
-//
-//
-//    Steam Moderator and apparent pirate Zefar has assumed ownership of the
-//      Steam support thread against the author's express written wishes;
-//        although unafilliated with the project, he now holds Intellectual
-//          Property ransom that does not belong to him.
-//
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to
@@ -56,7 +49,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.5.6.13"
+#define FAR_VERSION_NUM L"0.5.6.14"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -1665,13 +1658,6 @@ SK_FAR_EULA_Insert (LPVOID reserved)
                          "                 Peter  \"Durante\" Thoman,\n"
                          "\n"
                          "        Francesco149, Idk31, Smithfield, and GitHub contributors.\n"
-                         "\n"
-                         "\n"
-                         "    Steam Moderator and apparent pirate Zefar has assumed ownership of the\n"
-                         "      Steam support thread against the author's express written wishes;\n"
-                         "        although unafilliated with the project, he now holds Intellectual\n"
-                         "          Property ransom that does not belong to him.\n"
-                         "\n"
                          "\n"
                          " Permission is hereby granted, free of charge, to any person obtaining a copy\n"
                          " of this software and associated documentation files (the \"Software\"), to\n"
