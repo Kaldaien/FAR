@@ -1,7 +1,7 @@
 //
-// Copyright 2017  Andon  "Kaldaien" Coleman
+// Copyright 2017  Andon  "Kaldaien" Coleman,
 //                 Niklas "DrDaxxy"  Kielblock,
-//                 Peter  "Durante"  Thoman,
+//                 Peter  "Durante"  Thoman
 //
 //        Francesco149, Idk31, Smithfield, and GitHub contributors.
 //
@@ -49,7 +49,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.6.1"
+#define FAR_VERSION_NUM L"0.6.1.1"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -182,11 +182,6 @@ typedef void (__stdcall *SK_PlugIn_ControlPanelWidget_pfn)(void);
 static SK_PlugIn_ControlPanelWidget_pfn SK_PlugIn_ControlPanelWidget_Original = nullptr;
 
 
-#include <unordered_set>
-static std::unordered_set <ID3D11Texture2D          *> far_title_textures;
-static std::unordered_set <ID3D11ShaderResourceView *> far_title_views;
-
-
 // (Presumable) Size of compute shader workgroup
 int    __FAR_GlobalIllumWorkGroupSize =   128;
 bool   __FAR_GlobalIllumCompatMode    =  true;
@@ -197,9 +192,6 @@ struct {
   int  skip    =     0;
 
   bool active  = false;
-
-  std::unordered_set <ID3D11Texture2D          *> textures;
-  std::unordered_set <ID3D11ShaderResourceView *> views;
 } far_bloom;
 
 struct {
@@ -210,9 +202,6 @@ struct {
 
   bool disable         = false;
   bool fix_motion_blur = true;
-
-  std::unordered_set <ID3D11Texture2D          *> textures;
-  std::unordered_set <ID3D11ShaderResourceView *> views;
 } far_ao;
  
 double __FAR_TargetFPS                = 59.94;
@@ -341,25 +330,22 @@ SK_FAR_CreateBuffer (
     //
     //  >> Project small lights to infinity and leave large lights lit <<
     //
-    //
-    //    TODO:  Scale light volume by distance from camera (in world-space) to properly
-    //             handle small nearby lights.
-    //
     if (pInitialData != nullptr && pInitialData->pSysMem != nullptr)
     {
       struct far_light_volume_s {
-        float world_pos    [4];
+        float world_pos    [ 4];
         float world_to_vol [16];
-        float half_extents [4];
+        float half_extents [ 4];
       };
 
+      // Throw away the const-qualifier; it's safe.
       far_light_volume_s* lights =
         (far_light_volume_s *)pInitialData->pSysMem;
 
       static far_light_volume_s backup_lights [128];
 
       // This code is bloody ugly, but it works ;)
-      for (int i = 0; i < 128; i++)
+      for (int i = 0; i < __FAR_GlobalIllumWorkGroupSize; i++)
       {
         float light_pos [4] = { lights [i].world_pos [0], lights [i].world_pos [1],
                                 lights [i].world_pos [2], lights [i].world_pos [3] };
@@ -373,14 +359,17 @@ SK_FAR_CreateBuffer (
           light_pos [2] = backup_lights [i].world_pos [2]; light_pos [3] = backup_lights [i].world_pos [3];
         }
 
-        glm::vec4   cam_pos_world   (light_pos [0] - ((float *)far_cam.pCamera) [0], light_pos [1] - ((float *)far_cam.pCamera) [1], light_pos [2] - ((float *)far_cam.pCamera) [2], 1.0f);
+        glm::vec4   cam_pos_world ( light_pos [0] - ((float *)far_cam.pCamera) [0],
+                                    light_pos [1] - ((float *)far_cam.pCamera) [1],
+                                    light_pos [2] - ((float *)far_cam.pCamera) [2],
+                                                 1.0f );
 
-        glm::mat4x4 world_mat (lights [i].world_to_vol [ 0], lights [i].world_to_vol [ 1], lights [i].world_to_vol [ 2], lights [i].world_to_vol [ 3],
-                               lights [i].world_to_vol [ 4], lights [i].world_to_vol [ 5], lights [i].world_to_vol [ 6], lights [i].world_to_vol [ 7],
-                               lights [i].world_to_vol [ 8], lights [i].world_to_vol [ 9], lights [i].world_to_vol [10], lights [i].world_to_vol [11],
-                               lights [i].world_to_vol [12], lights [i].world_to_vol [13], lights [i].world_to_vol [14], lights [i].world_to_vol [15]);
+        glm::mat4x4 world_mat ( lights [i].world_to_vol [ 0], lights [i].world_to_vol [ 1], lights [i].world_to_vol [ 2], lights [i].world_to_vol [ 3],
+                                lights [i].world_to_vol [ 4], lights [i].world_to_vol [ 5], lights [i].world_to_vol [ 6], lights [i].world_to_vol [ 7],
+                                lights [i].world_to_vol [ 8], lights [i].world_to_vol [ 9], lights [i].world_to_vol [10], lights [i].world_to_vol [11],
+                                lights [i].world_to_vol [12], lights [i].world_to_vol [13], lights [i].world_to_vol [14], lights [i].world_to_vol [15] );
 
-        glm::vec4 test = world_mat * cam_pos_world;
+        glm::vec4   test = world_mat * cam_pos_world;
 
         if ( fabs (lights [i].half_extents [0]) < fabs (test.x) * __FAR_MINIMUM_EXT ||
              fabs (lights [i].half_extents [1]) < fabs (test.z) * __FAR_MINIMUM_EXT ||
@@ -396,7 +385,7 @@ SK_FAR_CreateBuffer (
             lights [i].half_extents [1] = 0.0f;
             lights [i].half_extents [2] = 0.0f;
             
-            // Project to infinity
+            // Project to infinity (but not beyond, because that makes no sense)
             lights [i].world_pos [0] = 0.0f; lights [i].world_pos [1] = 0.0f;
             lights [i].world_pos [2] = 0.0f; lights [i].world_pos [3] = 0.0f;
           }
@@ -457,24 +446,6 @@ SK_FAR_CreateShaderResourceView (
 
   HRESULT hr =
     D3D11Dev_CreateShaderResourceView_Original (This, pResource, pDesc, ppSRView);
-
-
-  
-  if (SUCCEEDED (hr) && pDesc != nullptr && ppSRView != nullptr)
-  {
-    // Bloom
-    if (far_bloom.textures.count ((ID3D11Texture2D *)pResource))
-      far_bloom.views.emplace (*ppSRView);
-
-    // AO
-    else if (far_ao.textures.count ((ID3D11Texture2D *)pResource))
-      far_ao.views.emplace (*ppSRView);
-
-    // Title Screen
-    else if (far_title_textures.count ((ID3D11Texture2D *)pResource))
-      far_title_views.emplace (*ppSRView);
-  }
-
 
   return hr;
 }
@@ -730,10 +701,6 @@ SK_FAR_EndFrame (void)
   XINPUT_STATE state;
   if (__FAR_Freelook && SK_XInput_PollController (0, &state))
   {
-#if 0
-#define VEC3_NORM(v) sqrt( (v)[0]*(v)[0] + (v)[1]*(v)[1] + (v)[2]*(v)[2] )
-#endif
-
     float LX   = state.Gamepad.sThumbLX;
     float LY   = state.Gamepad.sThumbLY;
 
@@ -1041,7 +1008,7 @@ SK_FAR_PresentFirstFrame (IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Fl
 
 typedef HRESULT (WINAPI *D3D11Dev_CreateTexture2D_pfn)(
   _In_            ID3D11Device           *This,
-  _In_      const D3D11_TEXTURE2D_DESC   *pDesc,
+  _In_  /*const*/ D3D11_TEXTURE2D_DESC   *pDesc,
   _In_opt_  const D3D11_SUBRESOURCE_DATA *pInitialData,
   _Out_opt_       ID3D11Texture2D        **ppTexture2D
 );
@@ -1082,14 +1049,6 @@ typedef void (WINAPI *D3D11_DrawInstancedIndirect_pfn)(
   _In_ UINT                 AlignedByteOffsetForArgs
 );
 
-typedef void (WINAPI *D3D11_PSSetShaderResources_pfn)(
-  _In_     ID3D11DeviceContext             *This,
-  _In_     UINT                             StartSlot,
-  _In_     UINT                             NumViews,
-  _In_opt_ ID3D11ShaderResourceView* const *ppShaderResourceViews
-);
-
-
 static D3D11Dev_CreateTexture2D_pfn           D3D11Dev_CreateTexture2D_Original           = nullptr;
 static D3D11_DrawIndexed_pfn                  D3D11_DrawIndexed_Original                  = nullptr;
 static D3D11_Draw_pfn                         D3D11_Draw_Original                         = nullptr;
@@ -1097,14 +1056,13 @@ static D3D11_DrawIndexedInstanced_pfn         D3D11_DrawIndexedInstanced_Origina
 static D3D11_DrawIndexedInstancedIndirect_pfn D3D11_DrawIndexedInstancedIndirect_Original = nullptr;
 static D3D11_DrawInstanced_pfn                D3D11_DrawInstanced_Original                = nullptr;
 static D3D11_DrawInstancedIndirect_pfn        D3D11_DrawInstancedIndirect_Original        = nullptr;
-static D3D11_PSSetShaderResources_pfn         D3D11_PSSetShaderResources_Original         = nullptr;
 
 
 extern HRESULT
 WINAPI
 D3D11Dev_CreateTexture2D_Override (
   _In_            ID3D11Device           *This,
-  _In_      const D3D11_TEXTURE2D_DESC   *pDesc,
+  _In_  /*const*/ D3D11_TEXTURE2D_DESC   *pDesc,
   _In_opt_  const D3D11_SUBRESOURCE_DATA *pInitialData,
   _Out_opt_       ID3D11Texture2D        **ppTexture2D );
 
@@ -1122,14 +1080,6 @@ D3D11_Draw_Override (
   _In_ ID3D11DeviceContext *This,
   _In_ UINT                 VertexCount,
   _In_ UINT                 StartVertexLocation );
-
-extern void
-WINAPI
-D3D11_PSSetShaderResources_Override (
-  _In_     ID3D11DeviceContext             *This,
-  _In_     UINT                             StartSlot,
-  _In_     UINT                             NumViews,
-  _In_opt_ ID3D11ShaderResourceView* const *ppShaderResourceViews );
 
 
 // Overview (Durante):
@@ -1155,15 +1105,15 @@ HRESULT
 WINAPI
 SK_FAR_CreateTexture2D (
   _In_            ID3D11Device           *This,
-  _In_      const D3D11_TEXTURE2D_DESC   *pDesc,
+  _In_  /*const*/ D3D11_TEXTURE2D_DESC   *pDesc,
   _In_opt_  const D3D11_SUBRESOURCE_DATA *pInitialData,
   _Out_opt_       ID3D11Texture2D        **ppTexture2D )
 {
   if (ppTexture2D == nullptr)
     return D3D11Dev_CreateTexture2D_Original ( This, pDesc, pInitialData, nullptr );
 
-  static UINT  resW      = far_bloom.width; // horizontal resolution, must be set at application start
-  static float resFactor = resW / 1600.0f;  // the factor required to scale to the largest part of the pyramid
+  static UINT   resW      = far_bloom.width; // horizontal resolution, must be set at application start
+  static double resFactor = resW / 1600.0;   // the factor required to scale to the largest part of the pyramid
 
   bool bloom = false;
   bool ao    = false;
@@ -1201,8 +1151,8 @@ SK_FAR_CreateTexture2D (
 
             // Scale the upper parts of the pyramid fully
             // and lower levels progressively less
-            float pyramidLevelFactor  = (pDesc->Width - 50) / 750.0f;
-            float scalingFactor       = 1.0f + (resFactor - 1.0f) * pyramidLevelFactor;
+            double pyramidLevelFactor  = ((double)pDesc->Width - 50.0) / 750.0;
+            double scalingFactor       = 1.0 + (resFactor - 1.0) * pyramidLevelFactor;
 
             copy.Width  = (UINT)(copy.Width  * scalingFactor);
             copy.Height = (UINT)(copy.Height * scalingFactor);
@@ -1264,46 +1214,6 @@ SK_FAR_CreateTexture2D (
   HRESULT hr = D3D11Dev_CreateTexture2D_Original ( This,
                                                      pDesc, pInitialData,
                                                        ppTexture2D );
-
-#if 0
-  //
-  // Hash textures so we can track the title texture
-  //
-  if (SUCCEEDED (hr) && pInitialData != nullptr && ppTexture2D != nullptr)
-  {
-    extern uint32_t
-    __cdecl // Meaningless in x64
-    crc32_tex (  _In_      const D3D11_TEXTURE2D_DESC   *pDesc,
-                 _In_      const D3D11_SUBRESOURCE_DATA *pInitialData,
-                 _Out_opt_       size_t                 *pSize,
-                 _Out_opt_       uint32_t               *pLOD0_CRC32 );
-
-    uint32_t checksum  = 0;
-    uint32_t cache_tag = 0;
-    size_t   size      = 0;
-    uint32_t top_crc32 = 0x00;
-
-    checksum = crc32_tex (pDesc, pInitialData, &size, &top_crc32);
-
-    if ( checksum == 0x713B879E ||
-         checksum == 0x013F2718 )
-    {
-      SK_LOG2 ( ( L"Title Texture (%x) : ID3D11Texture2D (%ph)",
-                    checksum, *ppTexture2D ),
-                  L"FAR PlugIn" );
-
-      far_title_textures.emplace (*ppTexture2D);
-    }
-  }
-#endif
-
-  if (SUCCEEDED (hr))
-  {
-    if (bloom)
-      far_bloom.textures.emplace (*ppTexture2D);
-    if (ao)
-      far_ao.textures.emplace (*ppTexture2D);
-  }
 
   return hr;
 }
@@ -1440,7 +1350,7 @@ SK_FAR_PreDraw (ID3D11DeviceContext* pDevCtx)
 
                     float constants [4] = {
                       0.5f / vp.Width, 0.5f / vp.Height,
-                      (float)vp.Width, (float)vp.Height
+                             vp.Width,        vp.Height
                     };
 
                     initialdata.pSysMem = constants;
@@ -1679,81 +1589,6 @@ SK_FAR_DrawInstancedIndirect (
 #include <cmath>
 #include <memory>
 
-__declspec (noinline)
-void
-WINAPI
-SK_FAR_PSSetShaderResources (
-  _In_     ID3D11DeviceContext             *This,
-  _In_     UINT                             StartSlot,
-  _In_     UINT                             NumViews,
-  _In_opt_ ID3D11ShaderResourceView* const *ppShaderResourceViews )
-{
-  std::vector <ID3D11ShaderResourceView *> views;
-  views.reserve (NumViews);
-
-  if (ppShaderResourceViews != nullptr)
-  {
-    for (UINT i = 0; i < NumViews; i++)
-    {
-      views [i] = ppShaderResourceViews [i];
-
-      if (far_ao.views.count (ppShaderResourceViews [i]) && far_ao.disable) {
-        views [i]     = nullptr;
-        far_ao.active = true;
-      }
-
-      else if (far_bloom.views.count (ppShaderResourceViews [i]) && far_bloom.disable) {
-        views [i]        = nullptr;
-        far_bloom.active = true;
-      }
-    }
-  }
-
-  ppShaderResourceViews = views.data ();
-
-#if 0
-  for (int i = 0; i < NumViews; i++)
-  {
-    if (far_title_views.count (ppShaderResourceViews [i]))
-    {
-      CComPtr <ID3D11SamplerState> pSamplerState [8] = { nullptr };
-
-      This->PSGetSamplers (0, 8, &pSamplerState [0]);
-
-
-      static ID3D11SamplerState *nearest_sampler = nullptr;
-
-      if (nearest_sampler == nullptr)
-      {
-        D3D11_SAMPLER_DESC       sample_desc;
-        pSamplerState [0]->GetDesc (&sample_desc);
-
-        sample_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sample_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sample_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sample_desc.Filter   = D3D11_FILTER_MIN_MAG_MIP_POINT;
-
-        CComPtr <ID3D11Device> pDev = nullptr;
-
-        This->GetDevice (&pDev);
-
-        pDev->CreateSamplerState (&sample_desc, &nearest_sampler);
-      }
-
-
-      for (int i = 0; i < 8; i++)
-      {
-        if (pSamplerState [i] != nullptr)
-          This->PSSetSamplers (i, 1, &nearest_sampler);
-      }
-    }
-  }
-#endif
-
-  D3D11_PSSetShaderResources_Original (This, StartSlot, NumViews, ppShaderResourceViews);
-}
-
-
 
 extern
 __declspec (noinline)
@@ -1771,9 +1606,9 @@ SK_FAR_EULA_Insert (LPVOID reserved)
 
   if (ImGui::CollapsingHeader ("FAR (Fix Automata Resolution)", ImGuiTreeNodeFlags_DefaultOpen))
   {
-    ImGui::TextWrapped ( " Copyright 2017  Andon  \"Kaldaien\" Coleman\n"
+    ImGui::TextWrapped ( " Copyright 2017  Andon  \"Kaldaien\" Coleman,\n"
                          "                 Niklas \"DrDaxxy\" Kielblock,\n"
-                         "                 Peter  \"Durante\" Thoman,\n"
+                         "                 Peter  \"Durante\" Thoman\n"
                          "\n"
                          "        Francesco149, Idk31, Smithfield, and GitHub contributors.\n"
                          "\n"
@@ -1841,12 +1676,6 @@ SK_FAR_InitPlugin (void)
                           SK_FAR_CreateShaderResourceView,
                             (LPVOID *)&D3D11Dev_CreateShaderResourceView_Original );
   MH_QueueEnableHook (D3D11Dev_CreateShaderResourceView_Override);
-
-  SK_CreateFuncHook ( L"ID3D11DeviceContext::PSSetShaderResources",
-                        D3D11_PSSetShaderResources_Override,
-                          SK_FAR_PSSetShaderResources,
-                            (LPVOID *)&D3D11_PSSetShaderResources_Original );
-  MH_QueueEnableHook (D3D11_PSSetShaderResources_Override);
 
   SK_CreateFuncHook ( L"ID3D11Device::CreateTexture2D",
                         D3D11Dev_CreateTexture2D_Override,
