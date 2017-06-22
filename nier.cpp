@@ -49,7 +49,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.6.1.2"
+#define FAR_VERSION_NUM L"0.6.2.0"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -337,7 +337,6 @@ SK_FAR_CreateBuffer (
     //
     if (pInitialData != nullptr && pInitialData->pSysMem != nullptr)
     {
-      // Throw away the const-qualifier; it's safe.
       far_light_volume_s* lights =
         (far_light_volume_s *)pInitialData->pSysMem;
 
@@ -387,6 +386,8 @@ SK_FAR_CreateBuffer (
 
       return D3D11Dev_CreateBuffer_Original (This, &new_desc, &new_data, ppBuffer);
     }
+
+    return D3D11Dev_CreateBuffer_Original (This, &new_desc, pInitialData, ppBuffer);
   }
 
   return D3D11Dev_CreateBuffer_Original (This, pDesc, pInitialData, ppBuffer);
@@ -1826,16 +1827,16 @@ typedef void (WINAPI *D3D11_DrawInstancedIndirect_pfn)(
                                               L"FAR.Compatibility",
                                                 L"NoD3D11Interop" );
 
-    extern bool SK_DXGI_SlowStateCache;
+    extern bool SK_DXGI_FullStateCache;
 
     if (! far_slow_state_cache->load ())
-      SK_DXGI_SlowStateCache = true;
+      SK_DXGI_FullStateCache = false;
     else
-      SK_DXGI_SlowStateCache = far_slow_state_cache->get_value ();
+      SK_DXGI_FullStateCache = far_slow_state_cache->get_value ();
 
-    config.render.dxgi.slow_state_cache = SK_DXGI_SlowStateCache;
+    config.render.dxgi.full_state_cache = SK_DXGI_FullStateCache;
 
-    far_slow_state_cache->set_value (SK_DXGI_SlowStateCache);
+    far_slow_state_cache->set_value (SK_DXGI_FullStateCache);
     far_slow_state_cache->store     ();
 
 
@@ -2294,6 +2295,16 @@ SK_FAR_ControlPanel (void)
 
         far_gi_min_light_extent->set_value (__FAR_MINIMUM_EXT);
         far_gi_min_light_extent->store     ();
+      }
+
+      if (ImGui::IsItemHovered ( ))
+      {
+        ImGui::BeginTooltip ();
+        ImGui::Text         ("Fine-tune Light Culling");
+        ImGui::Separator    ();
+        ImGui::BulletText   ("Higher values are faster, but will produce visible artifacts.");
+        ImGui::BulletText   ("Use Park Ruins: Attraction Sq. as a reference when adjusting this.");
+        ImGui::EndTooltip   ();
       }
 
       ImGui::TreePop ();
