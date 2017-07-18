@@ -49,7 +49,7 @@
 #include <atlbase.h>
 
 
-#define FAR_VERSION_NUM L"0.6.2.4"
+#define FAR_VERSION_NUM L"0.7.0"
 #define FAR_VERSION_STR L"FAR v " FAR_VERSION_NUM
 
 // Block until update finishes, otherwise the update dialog
@@ -321,41 +321,14 @@ SK_FAR_CheckVersion (LPVOID user)
   __stdcall
   SK_UpdateSoftware   (const wchar_t* wszProduct);
 
-  if (SK_FetchVersionInfo (L"FAR"))
-    SK_UpdateSoftware (L"FAR");
+  if (SK_FetchVersionInfo (L"FAR/dinput8"))
+    SK_UpdateSoftware (L"FAR/dinput8");
 
   return 0;
 }
 
 #include <../depends/include/glm/glm.hpp>
 
-
-struct far_scatter_param_s
-{
-  union
-  {
-    struct
-    {
-      float Near_Far_Stepnum     [4][4];
-      float LightColor           [4][4];
-      float LightDirView_Range15 [4];
-      float ScatterParam_Range7  [4];
-    };
-
-    float data [40];
-  };
-
-  far_scatter_param_s (LPCVOID pData)
-  {
-    if (pData != nullptr)
-      memcpy (&data [0], pData, sizeof far_scatter_param_s);
-    else
-      memset (&data [0], 0, sizeof far_scatter_param_s);
-  }
-};
-
-std::map <ID3D11Buffer*, far_scatter_param_s> scatter_buffers;
-std::map <ID3D11Buffer*, far_scatter_param_s> scatter_buffers_ovr;
 
 HRESULT
 WINAPI
@@ -439,21 +412,7 @@ SK_FAR_CreateBuffer (
     return D3D11Dev_CreateBuffer_Original (This, &new_desc, pInitialData, ppBuffer);
   }
 
-  HRESULT hr =
-    D3D11Dev_CreateBuffer_Original (This, pDesc, pInitialData, ppBuffer);
-
-  if (SUCCEEDED (hr) && ppBuffer != nullptr)
-  {
-    if ( pDesc != nullptr && pDesc->ByteWidth == sizeof (far_scatter_param_s) &&
-                             pDesc->BindFlags  & D3D11_BIND_CONSTANT_BUFFER   &&
-                             pInitialData )
-    {
-      scatter_buffers.emplace     (std::make_pair (*ppBuffer, far_scatter_param_s (pInitialData->pSysMem)));
-      scatter_buffers_ovr.emplace (std::make_pair (*ppBuffer, far_scatter_param_s (pInitialData->pSysMem)));
-    }
-  }
-
-  return hr;
+  return D3D11Dev_CreateBuffer_Original (This, pDesc, pInitialData, ppBuffer);
 }
 
 HRESULT
@@ -505,20 +464,6 @@ SK_FAR_PSSetConstantBuffers (
   _In_     UINT                  NumBuffers,
   _In_opt_ ID3D11Buffer *const  *ppConstantBuffers )
 {
-  if (ppConstantBuffers)
-  {
-    for (UINT i = 0; i < NumBuffers; i++)
-    {
-      if (StartSlot + i == 8)
-      {
-        if (scatter_buffers.count (ppConstantBuffers [i]))
-        {
-          dll_log.Log (L"NEAT");
-        }
-      }
-    }
-  }
-
   D3D11_PSSetConstantBuffers_Original (This, StartSlot, NumBuffers, ppConstantBuffers );
 }
 
@@ -536,28 +481,6 @@ extern LPVOID __SK_end_img_addr;
 
 extern void* __stdcall SK_Scan (const uint8_t* pattern, size_t len, const uint8_t* mask);
 
-
-
-typedef _Return_type_success_(return >= 0) LONG NTSTATUS;
-
-typedef NTSTATUS (NTAPI *NtQueryTimerResolution_pfn)
-(
-  OUT PULONG              MinimumResolution,
-  OUT PULONG              MaximumResolution,
-  OUT PULONG              CurrentResolution
-);
-
-typedef NTSTATUS (NTAPI *NtSetTimerResolution_pfn)
-(
-  IN  ULONG               DesiredResolution,
-  IN  BOOLEAN             SetResolution,
-  OUT PULONG              CurrentResolution
-);
-
-HMODULE                    NtDll                  = 0;
-
-NtQueryTimerResolution_pfn NtQueryTimerResolution = nullptr;
-NtSetTimerResolution_pfn   NtSetTimerResolution   = nullptr;
 
 void
 SK_FAR_SetFramerateCap (bool enable)
@@ -908,7 +831,7 @@ WINAPI
 SK_FAR_OSD_Disclaimer (LPVOID user)
 {
   while ((volatile bool&)config.osd.show)
-    Sleep (66);
+    SleepEx (66, FALSE);
 
   far_osd_disclaimer->set_value (false);
   far_osd_disclaimer->store     ();
@@ -1026,7 +949,7 @@ STDMETHODCALLTYPE
 SK_FAR_PresentFirstFrame (IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
 {
   // Wait for the mod to init, it may be held up during version check
-  while (! InterlockedAdd (&__FAR_init, 0)) Sleep (16);
+  while (! InterlockedAdd (&__FAR_init, 0)) SleepEx (16, FALSE);
 
   {
     game_state.enforce_cap = (! far_uncap_fps->get_value ());
@@ -1494,11 +1417,6 @@ SK_FAR_UpdateSubresource (
   _In_           UINT                 SrcRowPitch,
   _In_           UINT                 SrcDepthPitch)
 {
-  if (scatter_buffers.count ((ID3D11Buffer *)pDstResource))
-  {
-    memcpy (scatter_buffers.at ((ID3D11Buffer *)pDstResource).data, pSrcData, sizeof (far_scatter_param_s));
-  }
-
   return D3D11_UpdateSubresource_Original ( This, pDstResource, DstSubresource,
                                               pDstBox, pSrcData, SrcRowPitch,
                                                 SrcDepthPitch );
@@ -1732,32 +1650,6 @@ SK_FAR_InitPlugin (void)
 {
   SK_SetPluginName (FAR_VERSION_STR);
 
-  if (NtDll == 0)
-  {
-    NtDll = LoadLibrary (L"ntdll.dll");
-
-    NtQueryTimerResolution =
-      (NtQueryTimerResolution_pfn)
-        GetProcAddress (NtDll, "NtQueryTimerResolution");
-
-    NtSetTimerResolution =
-      (NtSetTimerResolution_pfn)
-        GetProcAddress (NtDll, "NtSetTimerResolution");
-
-    if (NtQueryTimerResolution != nullptr &&
-        NtSetTimerResolution   != nullptr)
-    {
-      ULONG min, max, cur;
-      NtQueryTimerResolution (&min, &max, &cur);
-      dll_log.Log ( L"[  Timing  ] Kernel resolution.: %f ms",
-                      (float)(cur * 100)/1000000.0f );
-      NtSetTimerResolution   (max, TRUE,  &cur);
-      dll_log.Log ( L"[  Timing  ] New resolution....: %f ms",
-                      (float)(cur * 100)/1000000.0f );
-
-    }
-  }
-
   SK_CreateFuncHook ( L"ID3D11Device::CreateBuffer",
                         D3D11Dev_CreateBuffer_Override,
                           SK_FAR_CreateBuffer,
@@ -1942,25 +1834,25 @@ typedef void (WINAPI *D3D11_DrawInstancedIndirect_pfn)(
       far_rtss_warned->store     ();
     }
 
-    far_slow_state_cache =
-      dynamic_cast <sk::ParameterBool *>
-        (far_factory.create_parameter <bool> (L"Disable D3D11.1 Interop Stateblocks"));
+    //far_slow_state_cache =
+    //  dynamic_cast <sk::ParameterBool *>
+    //    (far_factory.create_parameter <bool> (L"Disable D3D11.1 Interop Stateblocks"));
+    //
+    //far_slow_state_cache->register_to_ini ( far_prefs,
+    //                                          L"FAR.Compatibility",
+    //                                            L"NoD3D11Interop" );
+    //
+    //extern bool SK_DXGI_FullStateCache;
+    //
+    //if (! far_slow_state_cache->load ())
+    //  SK_DXGI_FullStateCache = false;
+    //else
+    //  SK_DXGI_FullStateCache = far_slow_state_cache->get_value ();
+    //
+    //config.render.dxgi.full_state_cache = SK_DXGI_FullStateCache;
 
-    far_slow_state_cache->register_to_ini ( far_prefs,
-                                              L"FAR.Compatibility",
-                                                L"NoD3D11Interop" );
-
-    extern bool SK_DXGI_FullStateCache;
-
-    if (! far_slow_state_cache->load ())
-      SK_DXGI_FullStateCache = false;
-    else
-      SK_DXGI_FullStateCache = far_slow_state_cache->get_value ();
-
-    config.render.dxgi.full_state_cache = SK_DXGI_FullStateCache;
-
-    far_slow_state_cache->set_value (SK_DXGI_FullStateCache);
-    far_slow_state_cache->store     ();
+    //far_slow_state_cache->set_value (SK_DXGI_FullStateCache);
+    //far_slow_state_cache->store     ();
 
 
     far_osd_disclaimer = 
@@ -2434,75 +2326,6 @@ SK_FAR_ControlPanel (void)
       }
 
       ImGui::TreePop ();
-    }
-
-    if (ImGui::CollapsingHeader ("Light Scattering"))
-    {
-      static int                 idx = 0;
-      static far_scatter_param_s scatter_data (nullptr);
-      static ID3D11Resource*     scatter_res = nullptr;
-
-      ImGui::TreePush ("");
-
-      if (ImGui::SliderInt ("Scatter Buffer", &idx, 0, scatter_buffers.size ()))
-      {
-        int scatter_idx = 0;
-
-        for (auto it : scatter_buffers)
-        {
-          if (scatter_idx == idx)
-          {
-            ID3D11DeviceContext* pCtx = nullptr;
-
-            ((ID3D11Device *)SK_GetCurrentRenderBackend ().device)->GetImmediateContext (&pCtx);
-
-            memcpy (scatter_data.data, it.second.data, sizeof far_scatter_param_s);
-            scatter_res = it.first;
-            break;
-          }
-          ++scatter_idx;
-        }
-      }
-
-      static bool update = false;
-
-      update |= ImGui::DragFloat4 ("Near_Far_Numsteps [0]", scatter_data.Near_Far_Stepnum [0]);
-      update |= ImGui::DragFloat4 ("Near_Far_Numsteps [1]", scatter_data.Near_Far_Stepnum [1]);
-      update |= ImGui::DragFloat4 ("Near_Far_Numsteps [2]", scatter_data.Near_Far_Stepnum [2]);
-      update |= ImGui::DragFloat4 ("Near_Far_Numsteps [3]", scatter_data.Near_Far_Stepnum [3]);
-
-      ImGui::Separator ();
-
-      update |= ImGui::ColorEdit4 ("LightColor [0]", scatter_data.LightColor [0]);
-      update |= ImGui::ColorEdit4 ("LightColor [1]", scatter_data.LightColor [1]);
-      update |= ImGui::ColorEdit4 ("LightColor [2]", scatter_data.LightColor [2]);
-      update |= ImGui::ColorEdit4 ("LightColor [3]", scatter_data.LightColor [3]);
-
-      ImGui::Separator ();
-
-      update |= ImGui::DragFloat4 ("LightDirView_Range15", scatter_data.LightDirView_Range15);
-      update |= ImGui::DragFloat4 ("ScatterParam_Range7",  scatter_data.ScatterParam_Range7);
-
-      ImGui::Separator ();
-
-      if (scatter_res && update)
-      {
-        //if (ImGui::Button ("Update Scatter Buffer"))
-        //{
-          ID3D11DeviceContext* pCtx = nullptr;
-
-          ((ID3D11Device *)SK_GetCurrentRenderBackend ().device)->GetImmediateContext (&pCtx);
-
-          for (auto it : scatter_buffers)
-          {
-            D3D11_UpdateSubresource_Original (pCtx, it.first, 0, nullptr, scatter_data.data, 0, 0);
-          }
-
-          //update = false;
-        //}
-      }
-
-      ImGui::TreePop  ();
     }
 
     if (ImGui::CollapsingHeader ("Framerate", ImGuiTreeNodeFlags_DefaultOpen))
