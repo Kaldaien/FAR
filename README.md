@@ -58,7 +58,9 @@ Keyboard: <kbd>Caps Lock</kbd><br>Gamepad: Hold <kbd>Back</kbd>/<kbd>Select</kbd
 Keyboard: <kbd>↑</kbd>/<kbd>↓</kbd>/<kbd>←</kbd>/<kbd>→</kbd><br>Gamepad: <kbd>D-pad</kbd> | Cycle Through UI Items
 Keyboard: <kbd>Enter</kbd><br>Gamepad: <kbd>A</kbd>/<kbd>×</kbd> | Activate Selected Item
 Keyboard: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Backspace</kbd><br>Gamepad: <kbd>B</kbd>/<kbd>○</kbd> | Exit Config Menu
-Exclusive Keyboard Mode: <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd>/<kbd>←</kbd>/<kbd>→</kbd><br>Gamepad: <kbd>X</kbd>/<kbd>□</kbd> + <kbd>Left Analog Stick</kbd> | Move the Control Panel
+Exclusive Keyboard Mode: <kbd>Ctrl</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd>/<kbd>←</kbd>/<kbd>→</kbd><br>Gamepad: <kbd>X</kbd>/<kbd>□</kbd> + <kbd>Left Analog Stick</kbd> | Move the Control Panel
+
+> Unless otherwise noted, <kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> can substitute the arrow keys
 
 ### On-Screen Display (OSD)
 *Color and scale config is stored in **Documents\My Mods\SpecialK\Global\osd.ini***
