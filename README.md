@@ -8,6 +8,7 @@ For help and/or questions, please post in the [FAR thread](http://steamcommunity
 
 For more instructions and guides on how to use FAR, see this [Tweak Guide](http://steamcommunity.com/sharedfiles/filedetails/?id=914437196) over on the Steam guides for NieR:Automata.
 
+
 ## Main Features
 
 * Fixes native fullscreen resolution
@@ -90,3 +91,7 @@ Keybinding | Function   | Usage
 * Francesco149 for framerate unlocker.
 * IDK31 and Smithfield for freecam look.
 * GitHub contributors
+
+
+# Source Code for Special K
+The source code for Special K is hosted over on [GitLab](https://gitlab.com/Kaldaien/SpecialK/).
