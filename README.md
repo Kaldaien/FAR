@@ -106,4 +106,4 @@ Keybinding | Function   | Usage
 
 
 # Source Code for Special K
-The source code for Special K is hosted over on [GitLab](https://gitlab.com/Kaldaien/SpecialK/).
+The source code for Special K is hosted over at https://github.com/SpecialKO/SpecialK
