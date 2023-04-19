@@ -1,6 +1,18 @@
 # FAR
 Fix (NieR) Automata Resolution
 
+## PSA: Incompatibility with the latest versions of the game!
+
+This is the original version of FAR, developed back in 2017 for the original Steam version of the game. Since then the Steam version have being extensively updated in 2021, with the game releasing on the Microsoft Store as well. The versions listed here is not compatible with those updated copies of the game, and requires an original 2017 version of the game to function.
+
+* If you want to use FAR with an updated copy of the game, please see [the official Special K wiki](https://wiki.special-k.info/SpecialK/Custom/FAR) for instructions on how to install an updated copy of FAR for those versions.
+
+* If you want to downgrade your Steam copy to the 2017 version, you can do so by following [the downgrade instructions](https://www.nexusmods.com/nierautomata/articles/7) provided by the LodMod creator over on Nexus.
+
+---
+
+## What follows below is the original readme file for the 2017 version of FAR: 
+
 * [Latest stable release](https://github.com/Kaldaien/FAR/releases/latest)
 * [All releases](https://github.com/Kaldaien/FAR/releases)
 
